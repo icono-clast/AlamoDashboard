@@ -39,9 +39,14 @@ const PROJECT_BOUNDS = {
 
 // ── ENTRY POINT ───────────────────────────────────────────────────────────────
 function doGet(e) {
-  return ContentService
-    .createTextOutput(JSON.stringify(buildDashboardData()))
-    .setMimeType(ContentService.MimeType.JSON);
+  if (e && e.parameter && e.parameter.format === 'json') {
+    return ContentService
+      .createTextOutput(JSON.stringify(buildDashboardData()))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  return HtmlService.createHtmlOutputFromFile('dashboard')
+    .setTitle('Alamo MPD · Financial Dashboard')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 // ── MAIN DATA BUILDER ─────────────────────────────────────────────────────────
