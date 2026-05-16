@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<base target="_top">
+<title>Alamo MPD · Financial Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+  :root{--bg:#0f1117;--bg2:#181b24;--bg3:#1f2330;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);--text1:#f0f1f4;--text2:#9da3b4;--text3:#5c6278;--blue:#4f8ef7;--blue-dim:rgba(79,142,247,0.12);--green:#3ecf8e;--green-dim:rgba(62,207,142,0.1);--red:#f26464;--red-dim:rgba(242,100,100,0.1);--amber:#f5a524;--amber-dim:rgba(245,165,36,0.1);--mono:'DM Mono',monospace;--sans:'DM Sans',sans-serif}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--sans);background:var(--bg);color:var(--text1);min-height:100vh;-webkit-font-smoothing:antialiased}
+  .header{background:var(--bg2);border-bottom:1px solid var(--border);padding:18px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+  .header-left{display:flex;flex-direction:column;gap:2px}
+  .header-client{font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--blue)}
+  .header-title{font-size:18px;font-weight:600;color:var(--text1);letter-spacing:-.02em}
+  .header-right{font-family:var(--mono);font-size:11px;color:var(--text3);text-align:right;line-height:1.6}
+  .header-right strong{color:var(--text2);font-weight:500}
+  .tab-bar{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 32px;display:flex;align-items:flex-end}
+  .tab{font-family:var(--sans);font-size:13px;font-weight:500;padding:12px 22px 11px;border:none;background:transparent;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;letter-spacing:-.01em}
+  .tab:hover{color:var(--text2)}
+  .tab.on{color:var(--text1);border-bottom-color:var(--blue)}
+  .main{padding:28px 32px 48px;max-width:1200px}
+  .active-label{font-size:11px;color:var(--text3);margin-bottom:22px;font-family:var(--mono);letter-spacing:.03em}
+  .active-label span{color:var(--text2)}
+  .loading{display:flex;align-items:center;justify-content:center;height:200px;color:var(--text3);font-family:var(--mono);font-size:13px;gap:10px}
+  .spinner{width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .banner{border-radius:10px;padding:16px 20px;margin-bottom:24px;display:flex;gap:32px;flex-wrap:wrap;align-items:center;border:1px solid}
+  .banner.ok{background:var(--green-dim);border-color:rgba(62,207,142,.2)}
+  .banner.bad{background:var(--red-dim);border-color:rgba(242,100,100,.2)}
+  .banner.warn{background:var(--amber-dim);border-color:rgba(245,165,36,.2)}
+  .bitem{display:flex;flex-direction:column;gap:3px}
+  .blabel{font-size:10px;font-weight:500;letter-spacing:.07em;text-transform:uppercase;color:var(--text3)}
+  .bval{font-family:var(--mono);font-size:20px;font-weight:500;letter-spacing:-.02em}
+  .bval.ok{color:var(--green)}.bval.bad{color:var(--red)}.bval.warn{color:var(--amber)}.bval.neu{color:var(--text1)}
+  .bdivider{width:1px;background:var(--border2);align-self:stretch}
+  .slabel{font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);margin-bottom:10px}
+  .kgrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:24px}
+  .kcard{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;border-top:2px solid transparent}
+  .kcard.c-contract{border-top-color:var(--blue)}.kcard.c-budget{border-top-color:var(--text3)}
+  .kcard.c-actual{border-top-color:var(--green)}.kcard.c-future{border-top-color:#7b9ef5}
+  .kcard.c-eac-ok{border-top-color:var(--green)}.kcard.c-eac-warn{border-top-color:var(--amber)}.kcard.c-eac-bad{border-top-color:var(--red)}
+  .klabel{font-size:11px;color:var(--text2);margin-bottom:6px}
+  .kval{font-family:var(--mono);font-size:17px;font-weight:500;color:var(--text1);letter-spacing:-.02em;line-height:1}
+  .kval.ok{color:var(--green)}.kval.bad{color:var(--red)}.kval.warn{color:var(--amber)}
+  .ksub{font-size:11px;color:var(--text3);margin-top:5px;line-height:1.4}
+  .cbox{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px 20px 16px;margin-bottom:14px}
+  .ctitle{font-size:13px;font-weight:500;color:var(--text1);margin-bottom:3px;letter-spacing:-.01em}
+  .csub{font-size:11px;color:var(--text3);margin-bottom:14px}
+  .leg{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;font-size:11px;color:var(--text2)}
+  .leg span{display:flex;align-items:center;gap:5px}
+  .ls{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+  .ll{width:18px;height:2px;flex-shrink:0;display:inline-block;border-radius:1px}
+  .cw{position:relative;width:100%;height:260px}
+  .cws{position:relative;width:100%;height:190px}
+  .note{font-size:11px;color:var(--text3);font-style:italic;margin-top:-6px;margin-bottom:20px;padding-left:2px;font-family:var(--mono)}
+  .footer{border-top:1px solid var(--border);padding:14px 32px;font-size:11px;color:var(--text3);font-family:var(--mono);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+
+  /* ── ROLE DETAIL TABLE ───────────────────────────────────────────────────── */
+  .role-section{margin-top:20px;margin-bottom:24px}
+  .role-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px}
+  .role-header-left h3{font-size:13px;font-weight:500;color:var(--text1);margin-bottom:2px;letter-spacing:-.01em}
+  .role-header-left p{font-size:11px;color:var(--text3)}
+  .role-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .rc-toggle{display:flex;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;overflow:hidden}
+  .rc-btn{padding:5px 12px;font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.04em;color:var(--text3);cursor:pointer;border:none;background:transparent;transition:color .15s,background .15s}
+  .rc-btn.on{background:var(--blue);color:#fff}
+  .rc-btn:not(.on):hover{color:var(--text2)}
+  .rc-select{font-family:var(--mono);font-size:10px;color:var(--text2);background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:5px 8px;cursor:pointer}
+  .rc-select option{background:var(--bg2)}
+  .role-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--bg2)}
+  .role-table-wrap::-webkit-scrollbar{height:5px;width:5px}
+  .role-table-wrap::-webkit-scrollbar-track{background:var(--bg)}
+  .role-table-wrap::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+  .rtbl{width:100%;border-collapse:collapse;font-size:11px;min-width:700px}
+  .rtbl thead{position:sticky;top:0;z-index:10}
+  .rtbl thead .rth-top th{background:var(--bg3);padding:7px 10px;font-family:var(--mono);font-weight:500;font-size:9.5px;letter-spacing:.07em;color:var(--text3);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border2)}
+  .rtbl thead .rth-top th.pg{border-left:1px solid var(--border2);color:var(--blue);text-align:center}
+  .rtbl thead .rth-sub th{background:var(--bg2);padding:4px 8px;font-family:var(--mono);font-size:9px;letter-spacing:.04em;color:var(--text3);white-space:nowrap;border-bottom:2px solid var(--border2)}
+  .rtbl thead .rth-sub .c-b{color:#b8a9ff}
+  .rtbl thead .rth-sub .c-a{color:var(--blue)}
+  .rtbl thead .rth-sub .c-l{color:#f5c842}
+  .rtbl tbody tr{border-bottom:1px solid var(--border)}
+  .rtbl tbody tr:hover td{background:var(--bg3)!important}
+  .rtbl td{padding:6px 10px;white-space:nowrap;font-family:var(--sans)}
+  .rtbl td.rn{font-weight:500;color:var(--text1);min-width:155px;position:sticky;left:0;background:var(--bg2);z-index:5;border-right:1px solid var(--border2)}
+  .rtbl td.nm{font-family:var(--mono);text-align:right;font-size:10.5px}
+  .rtbl td.nm.c-b{color:#b8a9ff}
+  .rtbl td.nm.c-a{color:#7ab4f5}
+  .rtbl td.nm.c-l{color:#f5c842}
+  .rtbl td.nm.c-e{color:var(--text1)}
+  .rtbl td.nm.c-v.pos{color:var(--green)}
+  .rtbl td.nm.c-v.neg{color:var(--red)}
+  .rtbl td.ps{border-left:1px solid var(--border2)}
+  .rtbl tfoot tr{border-top:2px solid var(--border2)}
+  .rtbl tfoot td{padding:7px 10px;font-family:var(--mono);font-size:11px;font-weight:500;color:var(--text1);background:var(--bg3);white-space:nowrap}
+  .rtbl tfoot td.rn{position:sticky;left:0;z-index:5}
+  .rtbl tfoot td.c-v.pos{color:var(--green)}
+  .rtbl tfoot td.c-v.neg{color:var(--red)}
+  .role-legend{display:flex;gap:14px;margin-top:8px;font-size:10px;color:var(--text3)}
+  .rl{display:flex;align-items:center;gap:4px}
+  .rl-dot{width:7px;height:7px;border-radius:2px;flex-shrink:0}
+</style>
+</head>
+<body>
+<header class="header">
+  <div class="header-left">
+    <div class="header-client">The Alamo · MPD</div>
+    <div class="header-title">VCM Project Financial Dashboard</div>
+  </div>
+  <div class="header-right" id="meta-block">
+    <strong>Loading...</strong>
+  </div>
+</header>
+<div class="tab-bar">
+  <button class="tab on" id="t-int" onclick="show('int')">VCM Interactive</button>
+  <button class="tab"    id="t-lin" onclick="show('lin')">VCM Linear</button>
+  <button class="tab"    id="t-all" onclick="show('all')">All MPD</button>
+</div>
+<div class="main">
+  <div class="active-label" id="active-label">Viewing: <span>VCM Interactive</span></div>
+  <div id="p-int"><div class="loading"><div class="spinner"></div>Loading dashboard data...</div></div>
+  <div id="p-lin" style="display:none"></div>
+  <div id="p-all" style="display:none"></div>
+</div>
+<footer class="footer">
+  <span>Alamo MPD · Internal Use Only</span>
+  <span id="footer-note">Labor cost basis: Kantata loaded cost (×2.35 PET overhead). Subs = budgeted amounts.</span>
+</footer>
+
+<script>
+// ── BOOTSTRAP: fetch data from Apps Script JSON API ──────────────────────────
+const API_URL = 'https://script.google.com/macros/s/AKfycbxOidsbu2SKpLxQC0ssIGv4F9fEEZMTFa8lByibZrZ_sIEjDfdHckl3-1wjRQAj7CT3/exec';
+
+let RAW, KD, FUTURE, MONTHLY, META;
+
+fetch(API_URL, { credentials: 'include' })
+  .then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  })
+  .then(data => {
+    RAW = data;
+    KD = RAW.kd;
+    KD.all = {
+      contractValue: KD.int.contractValue + KD.lin.contractValue,
+      laborBudget:   KD.int.laborBudget   + KD.lin.laborBudget,
+      subsBudget:    KD.int.subsBudget    + KD.lin.subsBudget,
+      laborActuals:  KD.int.laborActuals  + KD.lin.laborActuals,
+      laborEAC:      KD.int.laborEAC      + KD.lin.laborEAC,
+      totalEAC:      KD.int.totalEAC      + KD.lin.totalEAC,
+      eacMargin:     KD.int.eacMargin     + KD.lin.eacMargin,
+      eacMarginPct:  +((KD.int.eacMargin  + KD.lin.eacMargin) /
+                       (KD.int.contractValue + KD.lin.contractValue) * 100).toFixed(1),
+      samPct: 8,
+    };
+    FUTURE = RAW.future;
+    MONTHLY = RAW.monthly;
+    META = RAW.meta;
+
+    document.getElementById('meta-block').innerHTML =
+      '<strong>Data as of</strong> ' + META.asOf + '<br>Source: Kantata · PET Rates · Planning Budget';
+    document.getElementById('footer-note').textContent =
+      'Labor cost basis: Kantata loaded cost (×' + META.mult + ' PET overhead). Subs = budgeted amounts.';
+
+    buildPane('int'); built.int = true;
+  })
+  .catch(err => {
+    document.getElementById('p-int').innerHTML =
+      '<div class="loading" style="flex-direction:column;gap:6px"><span style="color:var(--red)">Failed to load dashboard data</span><span style="font-size:10px">' + err.message + '</span></div>';
+  });
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+const fmt$ = n => { if(n===null||n===undefined)return'—'; return(n<0?'-$':'$')+Math.round(Math.abs(n)).toLocaleString(); };
+const fmtK = n => { if(!n&&n!==0)return'—'; return(n<0?'-$':'$')+Math.round(Math.abs(n)/1000)+'k'; };
+const moLbl = ym => { const[y,m]=ym.split('-'); return['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+"'"+y.slice(2); };
+const eacCls = pct => pct>4?'ok':pct>=0?'warn':'bad';
+const charts = {};
+const killC = (...ids) => ids.forEach(id=>{if(charts[id]){charts[id].destroy();delete charts[id];}});
+
+function futureBgPlugin(monthly){
+  return{id:'fg',beforeDraw(chart){
+    const{ctx,chartArea:ca,scales}=chart;if(!ca)return;
+    const idx=monthly.findIndex(r=>r.isFuture);if(idx<0)return;
+    const x=scales.x.getPixelForValue(idx-0.5);
+    ctx.save();ctx.fillStyle='rgba(79,142,247,0.05)';
+    ctx.fillRect(x,ca.top,ca.right-x,ca.bottom-ca.top);ctx.restore();
+  }};
+}
+function zeroPlugin(){
+  return{id:'zl',beforeDraw(chart){
+    const{ctx,chartArea:ca,scales}=chart;if(!ca||!scales.y)return;
+    const y0=scales.y.getPixelForValue(0);
+    ctx.save();ctx.strokeStyle='rgba(255,255,255,0.12)';ctx.lineWidth=0.5;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.moveTo(ca.left,y0);ctx.lineTo(ca.right,y0);ctx.stroke();ctx.restore();
+  }};
+}
+
+// ── BUILD PANE ────────────────────────────────────────────────────────────────
+const built={};
+function buildPane(key){
+  const kd=KD[key], fut=FUTURE[key]||{laborCost:0,hrs:0}, monthly=MONTHLY[key]||[];
+  const ec=eacCls(parseFloat(kd.eacMarginPct));
+  const totalBudget=kd.laborBudget+kd.subsBudget;
+  const eacVsBudget=Math.round((kd.totalEAC/totalBudget-1)*100);
+  const bannerCls=parseFloat(kd.eacMarginPct)>=4?'ok':parseFloat(kd.eacMarginPct)>=0?'warn':'bad';
+  const erosion=(parseFloat(kd.eacMarginPct)-kd.samPct).toFixed(1);
+  const erosionSign=parseFloat(erosion)>=0?'+':'';
+
+  const labels=monthly.map(r=>moLbl(r.ym));
+  const actData=monthly.map(r=>r.actualCost);
+  const allocData=monthly.map(r=>r.allocCost);
+  const varData=monthly.map(r=>r.isFuture?null:r.actualCost-r.allocCost);
+  const varColors=varData.map(v=>v===null?'transparent':v>0?'rgba(242,100,100,0.8)':'rgba(62,207,142,0.7)');
+
+  const cmId='cm'+key, cvId='cv'+key;
+  killC(cmId,cvId);
+
+  document.getElementById('p-'+key).innerHTML=`
+    <div class="banner ${bannerCls}">
+      <div class="bitem"><span class="blabel">Contract Value</span><span class="bval neu">${fmt$(kd.contractValue)}</span></div>
+      <div class="bdivider"></div>
+      <div class="bitem"><span class="blabel">EAC Total Cost</span><span class="bval ${ec}">${fmt$(kd.totalEAC)}</span></div>
+      <div class="bitem"><span class="blabel">EAC Profit</span><span class="bval ${ec}">${fmt$(kd.eacMargin)}</span></div>
+      <div class="bdivider"></div>
+      <div class="bitem"><span class="blabel">SAM</span><span class="bval neu">${kd.samPct}%</span></div>
+      <div class="bitem"><span class="blabel">EAC Margin</span><span class="bval ${ec}">${kd.eacMarginPct}%</span></div>
+      <div class="bitem"><span class="blabel">Margin Erosion</span><span class="bval ${ec}">${erosionSign}${erosion}%</span></div>
+    </div>
+    <p class="slabel">Cost breakdown — loaded basis (×${META.mult} PET overhead)</p>
+    <div class="kgrid">
+      <div class="kcard c-contract"><div class="klabel">Contract Value</div><div class="kval">${fmt$(kd.contractValue)}</div><div class="ksub">Fixed fee · ${kd.samPct}% SAM target</div></div>
+      <div class="kcard c-budget"><div class="klabel">Planned Budget</div><div class="kval">${fmt$(totalBudget)}</div><div class="ksub">Labor ${fmt$(kd.laborBudget)} + Subs ${fmt$(kd.subsBudget)}</div></div>
+      <div class="kcard c-actual"><div class="klabel">Actual to Date</div><div class="kval">${fmt$(kd.laborActuals)}</div><div class="ksub">Labor only · ${Math.round(kd.laborActuals/kd.laborBudget*100)}% of labor budget</div></div>
+      <div class="kcard c-future"><div class="klabel">Future Allocated</div><div class="kval">${fmt$(fut.laborCost+kd.subsBudget)}</div><div class="ksub">Labor ${fmt$(fut.laborCost)} + Subs ${fmt$(kd.subsBudget)}</div></div>
+      <div class="kcard ${ec==='ok'?'c-eac-ok':ec==='warn'?'c-eac-warn':'c-eac-bad'}"><div class="klabel">EAC Total Cost</div><div class="kval ${ec}">${fmt$(kd.totalEAC)}</div><div class="ksub">${eacVsBudget>0?'+':''}${eacVsBudget}% vs planned budget</div></div>
+    </div>
+    <div class="cbox">
+      <div class="ctitle">Monthly labor cost — actuals vs allocations</div>
+      <div class="csub">Bars = actual loaded cost. Line = Kantata allocated cost. Shaded = future window.</div>
+      <div class="leg">
+        <span><span class="ls" style="background:#4f8ef7"></span>Actual cost</span>
+        <span><span class="ll" style="background:#3ecf8e"></span>K allocated cost</span>
+        <span><span class="ls" style="background:rgba(79,142,247,0.15);border:1px solid rgba(79,142,247,0.3)"></span>Future</span>
+      </div>
+      <div class="cw"><canvas id="${cmId}"></canvas></div>
+    </div>
+    <div class="cbox">
+      <div class="ctitle">Monthly variance — actual vs allocated cost</div>
+      <div class="csub">Red = over-allocated · Green = under-allocated · Future months not shown</div>
+      <div class="cws"><canvas id="${cvId}"></canvas></div>
+    </div>
+    <p class="note">† Subs treated as fully future (budgeted amounts). Config values from K PDF dashboard — update config tab after each K export.</p>
+    ${buildRoleSection(key)}
+  `;
+
+  const gC='rgba(255,255,255,0.05)', tf={size:9,family:"'DM Mono',monospace",color:'#5c6278'}, yf={size:10,family:"'DM Mono',monospace",color:'#9da3b4'};
+
+  charts[cmId]=new Chart(document.getElementById(cmId),{
+    type:'bar', plugins:[futureBgPlugin(monthly)],
+    data:{labels,datasets:[
+      {label:'Actual cost',data:actData,backgroundColor:'rgba(79,142,247,0.8)',borderRadius:3,order:2},
+      {label:'K allocated cost',data:allocData,type:'line',borderColor:'#3ecf8e',backgroundColor:'transparent',borderWidth:2,pointRadius:1.5,tension:0.3,order:1}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(24,27,36,0.95)',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,titleColor:'#f0f1f4',bodyColor:'#9da3b4',padding:10,callbacks:{label:c=>` ${c.dataset.label}: ${fmt$(c.parsed.y)}`}}},
+      scales:{x:{ticks:{autoSkip:true,maxTicksLimit:20,maxRotation:45,font:tf},grid:{color:gC},border:{color:'transparent'}},y:{ticks:{font:yf,callback:v=>fmtK(v)},grid:{color:gC},border:{color:'transparent'}}}}
+  });
+
+  charts[cvId]=new Chart(document.getElementById(cvId),{
+    type:'bar', plugins:[zeroPlugin()],
+    data:{labels,datasets:[{label:'Variance',data:varData,backgroundColor:varColors,borderRadius:3}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(24,27,36,0.95)',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,titleColor:'#f0f1f4',bodyColor:'#9da3b4',padding:10,callbacks:{label:c=>c.parsed.y!=null?` ${c.parsed.y>=0?'+':''}${fmt$(c.parsed.y)}`:'(future)'}}},
+      scales:{x:{ticks:{autoSkip:true,maxTicksLimit:20,maxRotation:45,font:tf},grid:{color:gC},border:{color:'transparent'}},y:{ticks:{font:yf,callback:v=>fmtK(v)},grid:{color:gC},border:{color:'transparent'},afterDataLimits(ax){const ab=Math.max(Math.abs(ax.min),Math.abs(ax.max));ax.min=-ab*1.2;ax.max=ab*1.2;}}}}
+  });
+
+  // Render role detail table if data available
+  if (RAW.roleDetail && RAW.roleDetail[key]) {
+    setTimeout(() => renderRoleTable(key), 0);
+  }
+}
+
+
+// ── ROLE DETAIL TABLE ────────────────────────────────────────────────────────
+const roleState = {};
+
+function buildRoleSection(key) {
+  roleState[key] = { period: 'monthly', window: 'future' };
+  const detail = RAW.roleDetail && RAW.roleDetail[key];
+  if (!detail || !detail.roles || !detail.roles.length) return '';
+
+  const hasBudget = detail.hasBudget;
+  return `
+    <div class="role-section">
+      <div class="role-header">
+        <div class="role-header-left">
+          <h3>Role Detail — ${hasBudget ? 'Budget vs ' : ''}Actuals vs Allocations</h3>
+          <p>Labor only · Cost × ${META.mult} overhead · ${hasBudget ? 'Budget distributed flat across project timeline' : 'Add budget-plan-int / budget-plan-lin tabs to unlock budget comparison'}</p>
+        </div>
+        <div class="role-controls">
+          <select class="rc-select" id="rwin-${key}" onchange="setRWin('${key}',this.value)">
+            <option value="future" selected>Future Only</option>
+            <option value="all">All Periods</option>
+            <option value="past">Past Only</option>
+            <option value="6m">Next 6 Months</option>
+            <option value="12m">Next 12 Months</option>
+          </select>
+          <div class="rc-toggle">
+            <button class="rc-btn on" id="rptm-${key}" onclick="setRPeriod('${key}','monthly')">Monthly</button>
+            <button class="rc-btn" id="rptw-${key}" onclick="setRPeriod('${key}','weekly')">Weekly</button>
+          </div>
+        </div>
+      </div>
+      <div class="role-table-wrap" id="rtw-${key}"></div>
+      <div class="role-legend">
+        ${hasBudget ? '<div class="rl"><div class="rl-dot" style="background:#b8a9ff"></div> Budget (flat dist.)</div>' : ''}
+        <div class="rl"><div class="rl-dot" style="background:#7ab4f5"></div> Actuals (past)</div>
+        <div class="rl"><div class="rl-dot" style="background:#f5c842"></div> Allocations (future)</div>
+      </div>
+    </div>
+  `;
+}
+
+function setRPeriod(key, p) {
+  roleState[key].period = p;
+  document.getElementById('rptm-'+key).className = 'rc-btn'+(p==='monthly'?' on':'');
+  document.getElementById('rptw-'+key).className = 'rc-btn'+(p==='weekly'?' on':'');
+  renderRoleTable(key);
+}
+function setRWin(key, w) {
+  roleState[key].window = w;
+  renderRoleTable(key);
+}
+
+function renderRoleTable(key) {
+  const detail = RAW.roleDetail && RAW.roleDetail[key];
+  if (!detail) return;
+  const { period, window: win } = roleState[key];
+  const isMonthly = period === 'monthly';
+  const allPeriods = isMonthly ? detail.allMonths : detail.allWeeks;
+  const today = new Date();
+  const todayYM = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0');
+  const todayCursor = isMonthly ? todayYM : isoWeekKey(today);
+
+  let periods = allPeriods;
+  if (win === 'past') periods = allPeriods.filter(p => p < todayCursor);
+  else if (win === 'future') periods = allPeriods.filter(p => p >= todayCursor);
+  else if (win === '6m' || win === '12m') {
+    const months = win === '6m' ? 6 : 12;
+    const endDate = new Date(today); endDate.setMonth(endDate.getMonth() + months);
+    const endKey = isMonthly ? toYM(endDate) : isoWeekKey(endDate);
+    periods = allPeriods.filter(p => p >= todayCursor && p <= endKey);
+  }
+
+  const hasBudget = detail.hasBudget;
+  const bk = isMonthly ? 'budgetByMonth' : 'budgetByWeek';
+  const ak = isMonthly ? 'actualByMonth' : 'actualByWeek';
+  const lk = isMonthly ? 'allocByMonth'  : 'allocByWeek';
+
+  // Thead
+  let thead = `<thead><tr class="rth-top">
+    <th class="rn" rowspan="2">Role</th>
+    ${hasBudget ? '<th class="nm" rowspan="2" style="text-align:right">Budget</th>' : ''}
+    <th class="nm" rowspan="2" style="text-align:right">Actuals</th>
+    <th class="nm" rowspan="2" style="text-align:right">Alloc</th>
+    <th class="nm" rowspan="2" style="text-align:right">EAC</th>
+    ${hasBudget ? '<th class="nm" rowspan="2" style="text-align:right">Variance</th>' : ''}`;
+  periods.forEach(p => {
+    const isCur = p === todayCursor;
+    const style = isCur ? 'background:rgba(79,142,247,0.08);' : '';
+    thead += `<th class="pg" colspan="${hasBudget?3:2}" style="${style}">${rPeriodLabel(p,isMonthly,isCur)}</th>`;
+  });
+  thead += `</tr><tr class="rth-sub">`;
+  periods.forEach(() => {
+    thead += `<th class="c-a ps">Act</th><th class="c-l">Alc</th>`;
+    if (hasBudget) thead += `<th class="c-b">Bud</th>`;
+  });
+  thead += `</tr></thead>`;
+
+  // Tbody + totals
+  const pTot = {};
+  periods.forEach(p => { pTot[p] = {act:0,alc:0,bud:0}; });
+  let tBud=0, tAct=0, tAlc=0, tEAC=0, tVar=0, hasVar=false;
+
+  let tbody = '<tbody>';
+  detail.roles.forEach(role => {
+    const vc = (role.variance||0) >= 0 ? 'pos' : 'neg';
+    tbody += `<tr>
+      <td class="rn">${esc(role.role)}</td>
+      ${hasBudget ? `<td class="nm c-b">${fmtRCell(role.budgetFees)}</td>` : ''}
+      <td class="nm c-a">${fmtRCell(role.actualTotal)}</td>
+      <td class="nm c-l">${fmtRCell(role.allocTotal)}</td>
+      <td class="nm c-e">${fmtRCell(role.eac)}</td>
+      ${hasBudget ? `<td class="nm c-v ${vc}">${role.variance!=null?fmtRCell(role.variance):''}</td>` : ''}`;
+    periods.forEach(p => {
+      const av = role[ak][p], lv = role[lk][p], bv = role[bk][p]||0;
+      const a = av?(av.fees||0):0, l = lv?(lv.fees||0):0;
+      pTot[p].act += a; pTot[p].alc += l; pTot[p].bud += bv;
+      tbody += `<td class="nm c-a ps">${fmtRCell(a)}</td><td class="nm c-l">${fmtRCell(l)}</td>`;
+      if (hasBudget) tbody += `<td class="nm c-b">${fmtRCell(bv)}</td>`;
+    });
+    tbody += '</tr>';
+    tBud += role.budgetFees||0; tAct += role.actualTotal||0;
+    tAlc += role.allocTotal||0; tEAC += role.eac||0;
+    if (role.variance!=null) { tVar += role.variance; hasVar = true; }
+  });
+  tbody += '</tbody>';
+
+  const tvc = tVar>=0?'pos':'neg';
+  let tfoot = `<tfoot><tr>
+    <td class="rn">TOTAL</td>
+    ${hasBudget ? `<td class="nm c-b">${fmtRCell(tBud)}</td>` : ''}
+    <td class="nm c-a">${fmtRCell(tAct)}</td>
+    <td class="nm c-l">${fmtRCell(tAlc)}</td>
+    <td class="nm c-e">${fmtRCell(tEAC)}</td>
+    ${hasBudget ? `<td class="nm c-v ${tvc}">${fmtRCell(tVar)}</td>` : ''}`;
+  periods.forEach(p => {
+    tfoot += `<td class="nm c-a ps">${fmtRCell(pTot[p].act)}</td><td class="nm c-l">${fmtRCell(pTot[p].alc)}</td>`;
+    if (hasBudget) tfoot += `<td class="nm c-b">${fmtRCell(pTot[p].bud)}</td>`;
+  });
+  tfoot += '</tr></tfoot>';
+
+  document.getElementById('rtw-'+key).innerHTML = `<table class="rtbl">${thead}${tbody}${tfoot}</table>`;
+}
+
+function rPeriodLabel(p, isMonthly, isCur) {
+  let lbl;
+  if (isMonthly) {
+    const [y,m] = p.split('-');
+    lbl = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+"'"+y.slice(2);
+  } else {
+    const parts = p.split('-W');
+    lbl = 'W'+parts[1]+"'"+parts[0].slice(2);
+  }
+  return isCur ? `<em style="color:var(--blue)">${lbl}●</em>` : lbl;
+}
+function fmtRCell(v) { if (!v) return ''; return (v<0?'-$':'$')+Math.round(Math.abs(v)/1000)+'k'; }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function toYM(d) { return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function isoWeekKey(d) {
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  date.setDate(date.getDate() + 3 - (date.getDay()+6)%7);
+  const w1 = new Date(date.getFullYear(), 0, 4);
+  const wn = 1 + Math.round(((date-w1)/86400000 - 3 + (w1.getDay()+6)%7)/7);
+  return date.getFullYear()+'-W'+String(wn).padStart(2,'0');
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────────
+const LABELS={int:'VCM Interactive',lin:'VCM Linear',all:'All MPD (Combined)'};
+function show(key){
+  ['int','lin','all'].forEach(k=>{
+    document.getElementById('t-'+k).className='tab'+(k===key?' on':'');
+    document.getElementById('p-'+k).style.display=k===key?'':'none';
+  });
+  document.getElementById('active-label').innerHTML=`Viewing: <span>${LABELS[key]}</span>`;
+  if(!built[key]){buildPane(key);built[key]=true;}
+}
+
+</script>
+</body>
+</html>
