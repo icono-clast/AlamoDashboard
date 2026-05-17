@@ -49,7 +49,10 @@ function buildDashboardData() {
   const ss     = SpreadsheetApp.getActiveSpreadsheet();
   const config = readConfig(ss);
 
-  const mult    = config.overhead_multiplier || 2.35;
+  // Cost Actual / Cost Allocated fields from Kantata exports are already loaded
+  // (Kantata applies PET overhead internally). Multiplier should be 1 unless
+  // the workspace is configured to export raw base costs.
+  const mult    = config.overhead_multiplier || 1;
   const asOf    = config.data_as_of || Utilities.formatDate(new Date(), 'America/New_York', 'MMM d, yyyy');
   const todayMs = new Date().getTime();
 

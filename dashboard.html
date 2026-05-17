@@ -203,7 +203,9 @@ async function loadData(accessToken) {
     document.getElementById('meta-block').innerHTML =
       '<strong>Data as of</strong> ' + META.asOf + '<br>Source: Kantata · PET Rates · Planning Budget';
     document.getElementById('footer-note').textContent =
-      'Labor cost basis: Kantata loaded cost (×' + META.mult + ' PET overhead). Subs = budgeted amounts.';
+      'Labor cost basis: Kantata loaded cost' +
+      (META.mult && META.mult !== 1 ? ' (×' + META.mult + ' overhead applied)' : ' (burden already in export)') +
+      '. Subs = budgeted amounts.';
 
     buildPane('int'); built.int = true;
   } catch(err) {
