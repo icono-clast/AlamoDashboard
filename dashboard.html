@@ -165,10 +165,15 @@ google.accounts.oauth2 && (tokenClient = google.accounts.oauth2.initTokenClient(
   }
 }));
 
-function signIn() { tokenClient.requestAccessToken(); }
+function signIn() { tokenClient.requestAccessToken({ prompt: 'consent' }); }
 
 async function loadData(accessToken) {
   try {
+    const ti = await fetch('https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=' + accessToken);
+    const tiJson = await ti.json();
+    console.log('Token scopes:', tiJson.scope);
+    console.log('Token email:', tiJson.email);
+
     const resp = await fetch(
       'https://script.googleapis.com/v1/scripts/' + SCRIPT_ID + ':run',
       {
