@@ -165,10 +165,20 @@ google.accounts.oauth2 && (tokenClient = google.accounts.oauth2.initTokenClient(
   }
 }));
 
-function signIn() { tokenClient.requestAccessToken({ prompt: 'consent' }); }
+function signIn() { tokenClient.requestAccessToken({ prompt: 'select_account consent' }); }
 
 async function loadData(accessToken) {
   try {
+    // Show which account we're using — helps diagnose 404 access errors
+    const whoResp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo',
+      { headers: { 'Authorization': 'Bearer ' + accessToken } });
+    if (whoResp.ok) {
+      const who = await whoResp.json();
+      document.getElementById('signin-screen').style.display = 'none';
+      document.getElementById('meta-block').innerHTML =
+        '<strong>Signed in as</strong> ' + (who.email || '?') + '<br><span style="color:var(--amber)">Loading data...</span>';
+    }
+
     const resp = await fetch(
       'https://script.googleapis.com/v1/scripts/' + SCRIPT_ID + ':run',
       {
