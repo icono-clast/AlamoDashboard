@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="https://accounts.google.com/gsi/client"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -102,9 +103,21 @@
   .role-legend{display:flex;gap:14px;margin-top:8px;font-size:10px;color:var(--text3)}
   .rl{display:flex;align-items:center;gap:4px}
   .rl-dot{width:7px;height:7px;border-radius:2px;flex-shrink:0}
+  .signin-screen{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:16px}
+  .signin-title{font-size:20px;font-weight:600;color:var(--text1);letter-spacing:-.02em}
+  .signin-sub{font-size:13px;color:var(--text3)}
+  .signin-btn{padding:10px 28px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-family:var(--sans);font-size:14px;font-weight:500;cursor:pointer;transition:opacity .15s}
+  .signin-btn:hover{opacity:.85}
+  .signin-err{font-size:11px;color:var(--red);font-family:var(--mono)}
 </style>
 </head>
 <body>
+<div class="signin-screen" id="signin-screen">
+  <div class="signin-title">Alamo MPD · Financial Dashboard</div>
+  <div class="signin-sub">Sign in with your @gallagherdesign.com account to continue</div>
+  <button class="signin-btn" onclick="signIn()">Sign in with Google</button>
+  <div class="signin-err" id="signin-err"></div>
+</div>
 <header class="header">
   <div class="header-left">
     <div class="header-client">The Alamo · MPD</div>
@@ -131,17 +144,44 @@
 </footer>
 
 <script>
-// ── BOOTSTRAP: fetch data from Apps Script JSON API ──────────────────────────
-const API_URL = 'https://script.google.com/macros/s/AKfycbxOidsbu2SKpLxQC0ssIGv4F9fEEZMTFa8lByibZrZ_sIEjDfdHckl3-1wjRQAj7CT3/exec';
+// ── BOOTSTRAP: Google Sign-In → Apps Script Execution API ────────────────────
+const CLIENT_ID = '955015400228-9psun8ffgthqkscee3nebovfsmmgmon5.apps.googleusercontent.com';
+const SCRIPT_ID = '1r_9TiqHQlxzt5N34gSt8zmEa5GPmPlQXPRY5Zmx_qcIVRwK0-3XSC1tx';
+const SCOPES   = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 
 let RAW, KD, FUTURE, MONTHLY, META;
+let tokenClient;
 
-fetch(API_URL, { credentials: 'include' })
-  .then(r => {
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  })
-  .then(data => {
+google.accounts.oauth2 && (tokenClient = google.accounts.oauth2.initTokenClient({
+  client_id: CLIENT_ID,
+  scope: SCOPES,
+  callback: function(resp) {
+    if (resp.error) {
+      document.getElementById('signin-err').textContent = resp.error;
+      return;
+    }
+    document.getElementById('signin-screen').style.display = 'none';
+    loadData(resp.access_token);
+  }
+}));
+
+function signIn() { tokenClient.requestAccessToken(); }
+
+async function loadData(accessToken) {
+  try {
+    const resp = await fetch(
+      'https://script.googleapis.com/v1/scripts/' + SCRIPT_ID + ':run',
+      {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ function: 'buildDashboardData', devMode: false })
+      }
+    );
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const result = await resp.json();
+    if (result.error) throw new Error(result.error.message || JSON.stringify(result.error));
+    const data = result.response.result;
+
     RAW = data;
     KD = RAW.kd;
     KD.all = {
@@ -166,11 +206,13 @@ fetch(API_URL, { credentials: 'include' })
       'Labor cost basis: Kantata loaded cost (×' + META.mult + ' PET overhead). Subs = budgeted amounts.';
 
     buildPane('int'); built.int = true;
-  })
-  .catch(err => {
+  } catch(err) {
     document.getElementById('p-int').innerHTML =
-      '<div class="loading" style="flex-direction:column;gap:6px"><span style="color:var(--red)">Failed to load dashboard data</span><span style="font-size:10px">' + err.message + '</span></div>';
-  });
+      '<div class="loading" style="flex-direction:column;gap:6px">' +
+      '<span style="color:var(--red)">Failed to load dashboard data</span>' +
+      '<span style="font-size:10px">' + err.message + '</span></div>';
+  }
+}
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 const fmt$ = n => { if(n===null||n===undefined)return'—'; return(n<0?'-$':'$')+Math.round(Math.abs(n)).toLocaleString(); };
