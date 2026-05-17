@@ -140,14 +140,22 @@
 </div>
 <footer class="footer">
   <span>Alamo MPD · Internal Use Only</span>
-  <span id="footer-note">Labor cost basis: Kantata loaded cost (×2.35 PET overhead). Subs = budgeted amounts.</span>
+  <span id="footer-note">Labor cost basis: Kantata loaded cost (burden already in export). Subs = budgeted amounts.</span>
 </footer>
 
 <script>
-// ── BOOTSTRAP: Google Sign-In → Apps Script Execution API ────────────────────
+// ── BOOTSTRAP: Google Sign-In → Google Sheets API ─────────────────────────────
 const CLIENT_ID = '955015400228-9psun8ffgthqkscee3nebovfsmmgmon5.apps.googleusercontent.com';
-const SCRIPT_ID = '1r_9TiqHQlxzt5N34gSt8zmEa5GPmPlQXPRY5Zmx_qcIVRwK0-3XSC1tx';
-const SCOPES   = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email openid';
+const SPREADSHEET_ID = '1OxpBklTrYUxpPfS2BJjG1CWTNoHmzyOA9GesJqyu7To';
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email';
+const PROJ_INT = 'Alamo | MPD | VCM Interactive';
+const PROJ_LIN = 'Alamo | MPD | VCM Linear';
+const INT_SUB_IDS = ['928973691','928973692','928973693','928973694','928973695'];
+const LIN_SUB_IDS = ['937455779','937455780','937455781','937455782','937455783','944222199','948222969'];
+const PROJECT_BOUNDS = {
+  int: { start: new Date('2025-10-01'), end: new Date('2027-11-30') },
+  lin: { start: new Date('2025-10-01'), end: new Date('2028-03-31') }
+};
 
 let RAW, KD, FUTURE, MONTHLY, META;
 let tokenClient;
@@ -169,7 +177,6 @@ function signIn() { tokenClient.requestAccessToken({ prompt: 'select_account con
 
 async function loadData(accessToken) {
   try {
-    // Show which account we're using — helps diagnose 404 access errors
     const whoResp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo',
       { headers: { 'Authorization': 'Bearer ' + accessToken } });
     if (whoResp.ok) {
@@ -179,19 +186,22 @@ async function loadData(accessToken) {
         '<strong>Signed in as</strong> ' + (who.email || '?') + '<br><span style="color:var(--amber)">Loading data...</span>';
     }
 
-    const resp = await fetch(
-      'https://script.googleapis.com/v1/scripts/' + SCRIPT_ID + ':run',
-      {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ function: 'buildDashboardData', devMode: false })
-      }
+    const tabs = ['time', 'allocations', 'tasks', 'config', 'budget-plan-int', 'budget-plan-lin'];
+    const params = tabs.map(t => 'ranges=' + encodeURIComponent(t)).join('&');
+    const sheetsResp = await fetch(
+      'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID +
+      '/values:batchGet?' + params + '&valueRenderOption=UNFORMATTED_VALUE',
+      { headers: { 'Authorization': 'Bearer ' + accessToken } }
     );
-    if (!resp.ok) { const body = await resp.text(); throw new Error('HTTP ' + resp.status + ': ' + body); }
-    const result = await resp.json();
-    if (result.error) throw new Error(result.error.message || JSON.stringify(result.error));
-    const data = result.response.result;
+    if (!sheetsResp.ok) {
+      const b = await sheetsResp.text();
+      throw new Error('Sheets API ' + sheetsResp.status + ': ' + b);
+    }
+    const sheetsResult = await sheetsResp.json();
+    const tabData = {};
+    sheetsResult.valueRanges.forEach((vr, i) => { tabData[tabs[i]] = vr.values || []; });
 
+    const data = buildDashboardData(tabData);
     RAW = data;
     KD = RAW.kd;
     KD.all = {
@@ -202,7 +212,7 @@ async function loadData(accessToken) {
       laborEAC:      KD.int.laborEAC      + KD.lin.laborEAC,
       totalEAC:      KD.int.totalEAC      + KD.lin.totalEAC,
       eacMargin:     KD.int.eacMargin     + KD.lin.eacMargin,
-      eacMarginPct:  +((KD.int.eacMargin  + KD.lin.eacMargin) /
+      eacMarginPct:  +((KD.int.eacMargin + KD.lin.eacMargin) /
                        (KD.int.contractValue + KD.lin.contractValue) * 100).toFixed(1),
       samPct: 8,
     };
@@ -211,7 +221,7 @@ async function loadData(accessToken) {
     META = RAW.meta;
 
     document.getElementById('meta-block').innerHTML =
-      '<strong>Data as of</strong> ' + META.asOf + '<br>Source: Kantata · PET Rates · Planning Budget';
+      '<strong>Data as of</strong> ' + META.asOf + '<br>Source: Kantata · Sheets API · Planning Budget';
     document.getElementById('footer-note').textContent =
       'Labor cost basis: Kantata loaded cost' +
       (META.mult && META.mult !== 1 ? ' (×' + META.mult + ' overhead applied)' : ' (burden already in export)') +
@@ -219,11 +229,339 @@ async function loadData(accessToken) {
 
     buildPane('int'); built.int = true;
   } catch(err) {
+    document.getElementById('signin-screen').style.display = 'none';
     document.getElementById('p-int').innerHTML =
       '<div class="loading" style="flex-direction:column;gap:6px">' +
       '<span style="color:var(--red)">Failed to load dashboard data</span>' +
       '<span style="font-size:10px">' + err.message + '</span></div>';
   }
+}
+
+// ── CLIENT-SIDE CALCULATIONS (ported from Apps Script Code.js) ────────────────
+
+function buildDashboardData(tabData) {
+  const config  = readConfig(tabData['config'] || []);
+  const mult    = config.overhead_multiplier || 1;
+  let asOf;
+  if (typeof config.data_as_of === 'number') {
+    asOf = new Date(Math.round((config.data_as_of - 25569) * 86400 * 1000))
+      .toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+  } else {
+    asOf = config.data_as_of ? String(config.data_as_of)
+      : new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+  }
+  const todayMs = Date.now();
+
+  const timeRows  = readSheetFromMarker(tabData['time']        || [], 'Time Entry: ID');
+  const allocRows = readSheetFromMarker(tabData['allocations'] || [], 'Resource Allocation Day: ID');
+  const taskRows  = readSheetFromMarker(tabData['tasks']       || [], 'Task: Name');
+  const budgetInt = parseBudgetTab(tabData['budget-plan-int']  || []);
+  const budgetLin = parseBudgetTab(tabData['budget-plan-lin']  || []);
+
+  const subsBudgets  = computeSubsBudgets(taskRows);
+  const laborActuals = {
+    int: sumLaborActuals(timeRows, PROJ_INT, mult),
+    lin: sumLaborActuals(timeRows, PROJ_LIN, mult),
+  };
+  const futureAlloc = {
+    int: sumFutureAlloc(allocRows, PROJ_INT, todayMs, mult),
+    lin: sumFutureAlloc(allocRows, PROJ_LIN, todayMs, mult),
+  };
+  futureAlloc.all = {
+    laborCost: futureAlloc.int.laborCost + futureAlloc.lin.laborCost,
+    hrs:       futureAlloc.int.hrs       + futureAlloc.lin.hrs,
+  };
+
+  function buildKD(key) {
+    const laborEAC      = laborActuals[key] + futureAlloc[key].laborCost;
+    const totalEAC      = laborEAC + subsBudgets[key];
+    const contractValue = Number(config[key + '_contract_value'] || 0);
+    const laborBudget   = Number(config[key + '_labor_budget']   || 0);
+    const eacMargin     = contractValue - totalEAC;
+    const eacMarginPct  = contractValue > 0 ? Math.round(eacMargin / contractValue * 1000) / 10 : 0;
+    return { contractValue, laborBudget, subsBudget: subsBudgets[key],
+             laborActuals: laborActuals[key], laborEAC, totalEAC,
+             eacMargin, eacMarginPct, samPct: 8 };
+  }
+  const kd = { int: buildKD('int'), lin: buildKD('lin') };
+
+  const monthly = {
+    int: buildMonthly(timeRows, allocRows, PROJ_INT, todayMs, mult),
+    lin: buildMonthly(timeRows, allocRows, PROJ_LIN, todayMs, mult),
+  };
+  monthly.all = mergeMonthly(monthly.int, monthly.lin);
+
+  const roleDetail = {
+    int: buildRoleDetailJS('int', timeRows, allocRows, budgetInt, PROJ_INT, todayMs, mult),
+    lin: buildRoleDetailJS('lin', timeRows, allocRows, budgetLin, PROJ_LIN, todayMs, mult),
+  };
+  roleDetail.all = mergeRoleDetails(roleDetail.int, roleDetail.lin);
+
+  return { kd, future: futureAlloc, monthly, roleDetail, meta: { asOf, mult } };
+}
+
+function readConfig(data2D) {
+  const cfg = {};
+  data2D.forEach(row => {
+    const key = String(row[0] || '').trim();
+    const val = row[1];
+    if (!key) return;
+    cfg[key] = (typeof val === 'number' || (!isNaN(Number(val)) && String(val).trim() !== ''))
+      ? Number(val) : String(val);
+  });
+  return cfg;
+}
+
+function readSheetFromMarker(data2D, markerText) {
+  let headerRow = -1;
+  for (let i = 0; i < data2D.length; i++) {
+    if (data2D[i].join('|').indexOf(markerText) !== -1) { headerRow = i; break; }
+  }
+  if (headerRow === -1) return [];
+  const headers = data2D[headerRow].map(h => String(h).trim());
+  const rows = [];
+  for (let i = headerRow + 1; i < data2D.length; i++) {
+    if (data2D[i].every(c => c === '' || c === null || c === undefined)) continue;
+    const obj = {};
+    headers.forEach((h, j) => { obj[h] = data2D[i][j]; });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function parseBudgetTab(data2D) {
+  if (!data2D || !data2D.length) return [];
+  let hi = -1;
+  for (let i = 0; i < data2D.length; i++) {
+    if (String(data2D[i][1] || '').trim() === 'Team Member') { hi = i; break; }
+  }
+  if (hi < 0) return [];
+  const results = [];
+  for (let i = hi + 1; i < data2D.length; i++) {
+    const r         = data2D[i];
+    const role      = String(r[2] || '').trim();
+    const hours     = parseNum(r[4]);
+    const kProjCost = parseNum(r[5]);
+    if (!role || role.toLowerCase() === 'subcontractors') break;
+    if (!hours && !kProjCost) continue;
+    results.push({ role, hours, kProjCost });
+  }
+  return results;
+}
+
+function computeSubsBudgets(taskRows) {
+  const subs = { int: 0, lin: 0 };
+  taskRows.forEach(r => {
+    const budget = parseNum(r['Task Estimated Budget']);
+    if (!budget || budget <= 0) return;
+    const id = String(r['Task: ID'] || '').trim();
+    if      (INT_SUB_IDS.indexOf(id) !== -1) subs.int += budget;
+    else if (LIN_SUB_IDS.indexOf(id) !== -1) subs.lin += budget;
+  });
+  return subs;
+}
+
+function sumLaborActuals(timeRows, projectName, mult) {
+  let total = 0;
+  timeRows.forEach(r => {
+    if (String(r['Project: Name'] || '').trim() !== projectName) return;
+    total += parseNum(r['Cost Actual']) * mult;
+  });
+  return Math.round(total);
+}
+
+function sumFutureAlloc(allocRows, projectName, todayMs, mult) {
+  let cost = 0, hrs = 0;
+  allocRows.forEach(r => {
+    if (String(r['Project: Name'] || '').trim() !== projectName) return;
+    const d = parseDate(r['Date (Shared)']);
+    if (!d || d.getTime() < todayMs) return;
+    cost += parseNum(r['Cost Allocated']) * mult;
+    hrs  += parseNum(r['Hours Allocated']);
+  });
+  return { laborCost: Math.round(cost), hrs: Math.round(hrs * 10) / 10 };
+}
+
+function buildMonthly(timeRows, allocRows, projectName, todayMs, mult) {
+  const actByYM = {}, allocByYM = {};
+  timeRows.forEach(r => {
+    if (String(r['Project: Name'] || '').trim() !== projectName) return;
+    const d = parseDate(r['Date (Shared)']);
+    if (!d) return;
+    const ym = toYM(d);
+    if (!actByYM[ym]) actByYM[ym] = { cost:0, hrs:0 };
+    actByYM[ym].cost += parseNum(r['Cost Actual']) * mult;
+    actByYM[ym].hrs  += parseNum(r['Hours Actual']);
+  });
+  allocRows.forEach(r => {
+    if (String(r['Project: Name'] || '').trim() !== projectName) return;
+    const d = parseDate(r['Date (Shared)']);
+    if (!d) return;
+    const ym = toYM(d);
+    if (!allocByYM[ym]) allocByYM[ym] = { cost:0, hrs:0 };
+    allocByYM[ym].cost += parseNum(r['Cost Allocated']) * mult;
+    allocByYM[ym].hrs  += parseNum(r['Hours Allocated']);
+  });
+  const todayYM = toYM(new Date(todayMs));
+  return [...new Set([...Object.keys(actByYM), ...Object.keys(allocByYM)])].sort()
+    .map(ym => ({
+      ym,
+      isFuture:   ym >= todayYM,
+      actualCost: Math.round((actByYM[ym]   || {cost:0}).cost),
+      allocCost:  Math.round((allocByYM[ym] || {cost:0}).cost),
+      actualHrs:  Math.round(((actByYM[ym]  || {hrs:0}).hrs) * 10) / 10,
+      allocHrs:   Math.round(((allocByYM[ym]|| {hrs:0}).hrs) * 10) / 10,
+    }));
+}
+
+function mergeMonthly(a, b) {
+  const map = {};
+  [...a, ...b].forEach(r => {
+    if (!map[r.ym]) map[r.ym] = { ym:r.ym, isFuture:r.isFuture, actualCost:0, allocCost:0, actualHrs:0, allocHrs:0 };
+    map[r.ym].actualCost += r.actualCost;
+    map[r.ym].allocCost  += r.allocCost;
+    map[r.ym].actualHrs  += r.actualHrs;
+    map[r.ym].allocHrs   += r.allocHrs;
+  });
+  return Object.values(map).sort((a,b) => a.ym.localeCompare(b.ym));
+}
+
+function buildRoleDetailJS(projKey, timeRows, allocRows, budgetRows, projName, todayMs, mult) {
+  const bounds      = PROJECT_BOUNDS[projKey];
+  const totalMonths = monthsBetween(bounds.start, bounds.end);
+  const hasBudget   = budgetRows.length > 0;
+
+  const roleSet = new Set();
+  budgetRows.forEach(r => { if (r.role) roleSet.add(r.role); });
+  timeRows.forEach(r => {
+    if (String(r['Project: Name'] || '').trim() === projName && r['Role: Name'])
+      roleSet.add(String(r['Role: Name']).trim());
+  });
+  allocRows.forEach(r => {
+    if (String(r['Project: Name'] || '').trim() === projName && r['Role: Name'])
+      roleSet.add(String(r['Role: Name']).trim());
+  });
+
+  const roles = [];
+  roleSet.forEach(role => {
+    const bRows       = budgetRows.filter(r => r.role === role);
+    const budgetFees  = bRows.reduce((s, r) => s + (r.kProjCost * mult || 0), 0);
+    const budgetHours = bRows.reduce((s, r) => s + (r.hours || 0), 0);
+
+    const actualByMonth = {};
+    timeRows.forEach(r => {
+      if (String(r['Project: Name'] || '').trim() !== projName) return;
+      if (String(r['Role: Name']    || '').trim() !== role)     return;
+      const d = parseDate(r['Date (Shared)']);
+      if (!d) return;
+      const mk = toYM(d);
+      const cost = parseNum(r['Cost Actual']) * mult;
+      const hrs  = parseNum(r['Hours Actual']);
+      if (!actualByMonth[mk]) actualByMonth[mk] = { fees:0, hours:0 };
+      actualByMonth[mk].fees  += cost;
+      actualByMonth[mk].hours += hrs;
+    });
+
+    const allocByMonth = {};
+    allocRows.forEach(r => {
+      if (String(r['Project: Name'] || '').trim() !== projName) return;
+      if (String(r['Role: Name']    || '').trim() !== role)     return;
+      const d = parseDate(r['Date (Shared)']);
+      if (!d || d.getTime() < todayMs) return;
+      const mk = toYM(d);
+      const cost = parseNum(r['Cost Allocated']) * mult;
+      const hrs  = parseNum(r['Hours Allocated']);
+      if (!allocByMonth[mk]) allocByMonth[mk] = { fees:0, hours:0 };
+      allocByMonth[mk].fees  += cost;
+      allocByMonth[mk].hours += hrs;
+    });
+
+    const budgetByMonth = {};
+    if (hasBudget && budgetFees > 0) {
+      const perMonth = budgetFees / totalMonths;
+      eachMonth(bounds.start, bounds.end).forEach(mk => { budgetByMonth[mk] = perMonth; });
+    }
+
+    const actualTotal = Object.values(actualByMonth).reduce((s,v) => s + v.fees, 0);
+    const allocTotal  = Object.values(allocByMonth).reduce((s,v)  => s + v.fees, 0);
+    const eac         = actualTotal + allocTotal;
+    const variance    = hasBudget ? budgetFees - eac : null;
+
+    roles.push({ role, budgetFees, budgetHours, hasBudget, actualTotal, allocTotal, eac, variance,
+                 budgetByMonth, actualByMonth, allocByMonth });
+  });
+
+  roles.sort((a,b) => (b.budgetFees - a.budgetFees) || (b.actualTotal - a.actualTotal) || a.role.localeCompare(b.role));
+
+  return { roles, hasBudget, allMonths: collectAllPeriodKeys(roles), allWeeks: [] };
+}
+
+function collectAllPeriodKeys(roles) {
+  const keySet = new Set();
+  roles.forEach(r => {
+    Object.keys(r.budgetByMonth || {}).forEach(k => keySet.add(k));
+    Object.keys(r.actualByMonth || {}).forEach(k => keySet.add(k));
+    Object.keys(r.allocByMonth  || {}).forEach(k => keySet.add(k));
+  });
+  return Array.from(keySet).sort();
+}
+
+function mergeRoleDetails(intD, linD) {
+  const map = {};
+  function absorb(detail) {
+    detail.roles.forEach(r => {
+      if (!map[r.role]) {
+        map[r.role] = JSON.parse(JSON.stringify(r));
+      } else {
+        const m = map[r.role];
+        m.budgetFees  += r.budgetFees;
+        m.budgetHours += r.budgetHours;
+        m.actualTotal += r.actualTotal;
+        m.allocTotal  += r.allocTotal;
+        m.eac         += r.eac;
+        if (m.variance !== null && r.variance !== null) m.variance += r.variance;
+        else m.variance = null;
+        Object.entries(r.budgetByMonth || {}).forEach(([k,v]) => { m.budgetByMonth[k] = (m.budgetByMonth[k]||0) + v; });
+        ['actualByMonth','allocByMonth'].forEach(key => {
+          Object.entries(r[key] || {}).forEach(([k,v]) => {
+            if (!m[key][k]) m[key][k] = { fees:0, hours:0 };
+            m[key][k].fees  += v.fees  || 0;
+            m[key][k].hours += v.hours || 0;
+          });
+        });
+      }
+    });
+  }
+  absorb(intD);
+  absorb(linD);
+  const roles = Object.values(map).sort((a,b) => (b.budgetFees - a.budgetFees) || (b.actualTotal - a.actualTotal) || a.role.localeCompare(b.role));
+  const hasBudget = intD.hasBudget || linD.hasBudget;
+  return { roles, hasBudget, allMonths: collectAllPeriodKeys(roles), allWeeks: [] };
+}
+
+function monthsBetween(start, end) {
+  return (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
+}
+function eachMonth(start, end) {
+  const months = [], d = new Date(start.getFullYear(), start.getMonth(), 1);
+  while (d <= end) { months.push(toYM(d)); d.setMonth(d.getMonth()+1); }
+  return months;
+}
+function parseDate(val) {
+  if (!val && val !== 0) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if (typeof val === 'number') {
+    // Google Sheets serial date: days since Dec 30, 1899
+    return new Date(Math.round((val - 25569) * 86400 * 1000));
+  }
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
+}
+function parseNum(val) {
+  if (typeof val === 'number') return val;
+  if (!val && val !== 0) return 0;
+  const n = parseFloat(String(val).replace(/[$,\s]/g,''));
+  return isNaN(n) ? 0 : n;
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
