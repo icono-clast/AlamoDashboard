@@ -685,7 +685,7 @@ const fmtK = n => { if(!n&&n!==0)return'—'; return(n<0?'-$':'$')+Math.round(Ma
 const fmtH = v => { if(!v) return ''; return Math.round(v); };
 const moLbl = ym => { const[y,m]=ym.split('-'); return['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+"'"+y.slice(2); };
 const wkLbl = wk => { const p=wk.split('-W'); return'W'+p[1]+"'"+p[0].slice(2); };
-const eacCls = pct => pct>4?'ok':pct>=0?'warn':'bad';
+const eacCls = (pct, sam) => pct > (sam || 8) ? 'ok' : pct >= 0 ? 'warn' : 'bad';
 const charts = {};
 const killC = (...ids) => ids.forEach(id=>{if(charts[id]){charts[id].destroy();delete charts[id];}});
 
@@ -769,7 +769,7 @@ const built={};
 function buildPane(key){
   chartState[key] = 'monthly';
   const kd=KD[key], fut=FUTURE[key]||{laborCost:0,hrs:0};
-  const ec=eacCls(parseFloat(kd.eacMarginPct));
+  const ec=eacCls(parseFloat(kd.eacMarginPct), kd.samPct);
   const totalBudget=kd.laborBudget+kd.subsBudget;
   const eacVsBudget=Math.round((kd.totalEAC/totalBudget-1)*100);
   const bannerCls=parseFloat(kd.eacMarginPct)>=4?'ok':parseFloat(kd.eacMarginPct)>=0?'warn':'bad';
