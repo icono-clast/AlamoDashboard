@@ -54,8 +54,7 @@
   .leg span{display:flex;align-items:center;gap:5px}
   .ls{width:10px;height:10px;border-radius:2px;flex-shrink:0}
   .ll{width:18px;height:2px;flex-shrink:0;display:inline-block;border-radius:1px}
-  .cw{position:relative;width:100%;height:260px}
-  .cws{position:relative;width:100%;height:190px}
+  .cw{position:relative;width:100%;height:260px;overflow-x:auto}
   .note{font-size:11px;color:var(--text3);font-style:italic;margin-top:-6px;margin-bottom:20px;padding-left:2px;font-family:var(--mono)}
   .footer{border-top:1px solid var(--border);padding:14px 32px;font-size:11px;color:var(--text3);font-family:var(--mono);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
 
@@ -144,30 +143,26 @@
 </footer>
 
 <script>
-// ── BOOTSTRAP: Google Sign-In → Google Sheets API ─────────────────────────────
-const CLIENT_ID = '955015400228-9psun8ffgthqkscee3nebovfsmmgmon5.apps.googleusercontent.com';
+// ── BOOTSTRAP ─────────────────────────────────────────────────────────────────
+const CLIENT_ID     = '955015400228-9psun8ffgthqkscee3nebovfsmmgmon5.apps.googleusercontent.com';
 const SPREADSHEET_ID = '1OxpBklTrYUxpPfS2BJjG1CWTNoHmzyOA9GesJqyu7To';
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email';
-const PROJ_INT = 'Alamo | MPD | VCM Interactive';
-const PROJ_LIN = 'Alamo | MPD | VCM Linear';
-const INT_SUB_IDS = ['928973691','928973692','928973693','928973694','928973695'];
-const LIN_SUB_IDS = ['937455779','937455780','937455781','937455782','937455783','944222199','948222969'];
+const SCOPES        = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email';
+const PROJ_INT      = 'Alamo | MPD | VCM Interactive';
+const PROJ_LIN      = 'Alamo | MPD | VCM Linear';
+const INT_SUB_IDS   = ['928973691','928973692','928973693','928973694','928973695'];
+const LIN_SUB_IDS   = ['937455779','937455780','937455781','937455782','937455783','944222199','948222969'];
 const PROJECT_BOUNDS = {
   int: { start: new Date('2025-10-01'), end: new Date('2027-11-30') },
   lin: { start: new Date('2025-10-01'), end: new Date('2028-03-31') }
 };
 
-let RAW, KD, FUTURE, MONTHLY, META;
+let RAW, KD, FUTURE, MONTHLY, WEEKLY, META;
 let tokenClient;
 
 google.accounts.oauth2 && (tokenClient = google.accounts.oauth2.initTokenClient({
-  client_id: CLIENT_ID,
-  scope: SCOPES,
+  client_id: CLIENT_ID, scope: SCOPES,
   callback: function(resp) {
-    if (resp.error) {
-      document.getElementById('signin-err').textContent = resp.error;
-      return;
-    }
+    if (resp.error) { document.getElementById('signin-err').textContent = resp.error; return; }
     document.getElementById('signin-screen').style.display = 'none';
     loadData(resp.access_token);
   }
@@ -185,7 +180,6 @@ async function loadData(accessToken) {
       document.getElementById('meta-block').innerHTML =
         '<strong>Signed in as</strong> ' + (who.email || '?') + '<br><span style="color:var(--amber)">Loading data...</span>';
     }
-
     const reqTabs = ['time', 'allocations', 'tasks', 'config'];
     const reqParams = reqTabs.map(t => 'ranges=' + encodeURIComponent("'" + t + "'")).join('&');
     const sheetsResp = await fetch(
@@ -193,15 +187,10 @@ async function loadData(accessToken) {
       '/values:batchGet?' + reqParams + '&valueRenderOption=UNFORMATTED_VALUE',
       { headers: { 'Authorization': 'Bearer ' + accessToken } }
     );
-    if (!sheetsResp.ok) {
-      const b = await sheetsResp.text();
-      throw new Error('Sheets API ' + sheetsResp.status + ': ' + b);
-    }
+    if (!sheetsResp.ok) { const b = await sheetsResp.text(); throw new Error('Sheets API ' + sheetsResp.status + ': ' + b); }
     const sheetsResult = await sheetsResp.json();
     const tabData = {};
     sheetsResult.valueRanges.forEach((vr, i) => { tabData[reqTabs[i]] = vr.values || []; });
-
-    // Optional budget tabs — may not exist; ignore errors
     for (const bt of ['bud-int-hrs', 'bud-int-sub', 'bud-lin-hrs', 'bud-lin-sub']) {
       try {
         const br = await fetch(
@@ -212,10 +201,8 @@ async function loadData(accessToken) {
         tabData[bt] = br.ok ? ((await br.json()).values || []) : [];
       } catch(_) { tabData[bt] = []; }
     }
-
     const data = buildDashboardData(tabData);
-    RAW = data;
-    KD = RAW.kd;
+    RAW = data; KD = RAW.kd;
     KD.all = {
       contractValue: KD.int.contractValue + KD.lin.contractValue,
       laborBudget:   KD.int.laborBudget   + KD.lin.laborBudget,
@@ -228,17 +215,13 @@ async function loadData(accessToken) {
                        (KD.int.contractValue + KD.lin.contractValue) * 100).toFixed(1),
       samPct: 8,
     };
-    FUTURE = RAW.future;
-    MONTHLY = RAW.monthly;
-    META = RAW.meta;
-
+    FUTURE = RAW.future; MONTHLY = RAW.monthly; WEEKLY = RAW.weekly; META = RAW.meta;
     document.getElementById('meta-block').innerHTML =
       '<strong>Data as of</strong> ' + META.asOf + '<br>Source: Kantata · Sheets API · Planning Budget';
     document.getElementById('footer-note').textContent =
       'Labor cost basis: Kantata loaded cost' +
       (META.mult && META.mult !== 1 ? ' (×' + META.mult + ' overhead applied)' : ' (burden already in export)') +
       '. Subs = budgeted amounts.';
-
     buildPane('int'); built.int = true;
   } catch(err) {
     document.getElementById('signin-screen').style.display = 'none';
@@ -249,7 +232,7 @@ async function loadData(accessToken) {
   }
 }
 
-// ── CLIENT-SIDE CALCULATIONS (ported from Apps Script Code.js) ────────────────
+// ── CLIENT-SIDE CALCULATIONS ──────────────────────────────────────────────────
 
 function buildDashboardData(tabData) {
   const config  = readConfig(tabData['config'] || []);
@@ -263,12 +246,11 @@ function buildDashboardData(tabData) {
       : new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
   }
   const todayMs = Date.now();
-
   const timeRows  = readSheetFromMarker(tabData['time']        || [], 'Time Entry: ID');
   const allocRows = readSheetFromMarker(tabData['allocations'] || [], 'Resource Allocation Day: ID');
   const taskRows  = readSheetFromMarker(tabData['tasks']       || [], 'Task: Name');
-  const budgetInt = parseBudgetTab(tabData['bud-int-hrs'] || []);
-  const budgetLin = parseBudgetTab(tabData['bud-lin-hrs'] || []);
+  const budgetInt = parseBudgetTab(tabData['bud-int-hrs'] || [], 'int');
+  const budgetLin = parseBudgetTab(tabData['bud-lin-hrs'] || [], 'lin');
 
   const subsBudgets  = computeSubsBudgets(taskRows);
   const laborActuals = {
@@ -298,18 +280,24 @@ function buildDashboardData(tabData) {
   const kd = { int: buildKD('int'), lin: buildKD('lin') };
 
   const monthly = {
-    int: buildMonthly(timeRows, allocRows, PROJ_INT, todayMs, mult),
-    lin: buildMonthly(timeRows, allocRows, PROJ_LIN, todayMs, mult),
+    int: buildMonthly(timeRows, allocRows, PROJ_INT, todayMs, mult, budgetInt),
+    lin: buildMonthly(timeRows, allocRows, PROJ_LIN, todayMs, mult, budgetLin),
   };
   monthly.all = mergeMonthly(monthly.int, monthly.lin);
 
+  const weekly = {
+    int: buildWeekly(timeRows, allocRows, PROJ_INT, todayMs, mult, budgetInt),
+    lin: buildWeekly(timeRows, allocRows, PROJ_LIN, todayMs, mult, budgetLin),
+  };
+  weekly.all = mergeWeekly(weekly.int, weekly.lin);
+
   const roleDetail = {
-    int: buildRoleDetailJS('int', timeRows, allocRows, budgetInt, PROJ_INT, todayMs, mult),
-    lin: buildRoleDetailJS('lin', timeRows, allocRows, budgetLin, PROJ_LIN, todayMs, mult),
+    int: buildRoleDetailJS('int', timeRows, allocRows, budgetInt, PROJ_INT, todayMs),
+    lin: buildRoleDetailJS('lin', timeRows, allocRows, budgetLin, PROJ_LIN, todayMs),
   };
   roleDetail.all = mergeRoleDetails(roleDetail.int, roleDetail.lin);
 
-  return { kd, future: futureAlloc, monthly, roleDetail, meta: { asOf, mult } };
+  return { kd, future: futureAlloc, monthly, weekly, roleDetail, meta: { asOf, mult } };
 }
 
 function readConfig(data2D) {
@@ -341,24 +329,39 @@ function readSheetFromMarker(data2D, markerText) {
   return rows;
 }
 
-function parseBudgetTab(data2D) {
-  if (!data2D || !data2D.length) return [];
+// Budget tab structure: Team Member | Team Role | Rate | K Proj Cost | Total Hrs | Oct | Nov | ...
+// Month columns start at index 5 and map sequentially from project start date.
+function parseBudgetTab(data2D, projKey) {
+  if (!data2D || !data2D.length) return { rows: [], monthKeys: [] };
   let hi = -1;
   for (let i = 0; i < data2D.length; i++) {
-    if (String(data2D[i][1] || '').trim() === 'Team Member') { hi = i; break; }
+    if (String(data2D[i][0] || '').trim() === 'Team Member') { hi = i; break; }
   }
-  if (hi < 0) return [];
-  const results = [];
+  if (hi < 0) return { rows: [], monthKeys: [] };
+  const FIXED = 5;
+  const bounds = PROJECT_BOUNDS[projKey];
+  const numCols = data2D[hi].length - FIXED;
+  const monthKeys = [];
+  for (let i = 0; i < numCols; i++) {
+    const d = new Date(bounds.start.getFullYear(), bounds.start.getMonth() + i, 1);
+    monthKeys.push(toYM(d));
+  }
+  const rows = [];
   for (let i = hi + 1; i < data2D.length; i++) {
-    const r         = data2D[i];
-    const role      = String(r[2] || '').trim();
-    const hours     = parseNum(r[4]);
-    const kProjCost = parseNum(r[5]);
-    if (!role || role.toLowerCase() === 'subcontractors') break;
-    if (!hours && !kProjCost) continue;
-    results.push({ role, hours, kProjCost });
+    const r = data2D[i];
+    const role = String(r[1] || '').trim();
+    if (!role) break;
+    const rate       = parseNum(r[2]);
+    const kProjCost  = parseNum(r[3]);
+    const totalHours = parseNum(r[4]);
+    const byMonth = {};
+    for (let j = 0; j < monthKeys.length && (FIXED + j) < r.length; j++) {
+      const hrs = parseNum(r[FIXED + j]);
+      if (hrs > 0) byMonth[monthKeys[j]] = hrs;
+    }
+    rows.push({ role, rate, kProjCost, totalHours, byMonth });
   }
-  return results;
+  return { rows, monthKeys };
 }
 
 function computeSubsBudgets(taskRows) {
@@ -394,8 +397,8 @@ function sumFutureAlloc(allocRows, projectName, todayMs, mult) {
   return { laborCost: Math.round(cost), hrs: Math.round(hrs * 10) / 10 };
 }
 
-function buildMonthly(timeRows, allocRows, projectName, todayMs, mult) {
-  const actByYM = {}, allocByYM = {};
+function buildMonthly(timeRows, allocRows, projectName, todayMs, mult, budget) {
+  const actByYM = {}, allocByYM = {}, budgetByYM = {};
   timeRows.forEach(r => {
     if (String(r['Project: Name'] || '').trim() !== projectName) return;
     const d = parseDate(r['Date (Shared)']);
@@ -414,37 +417,112 @@ function buildMonthly(timeRows, allocRows, projectName, todayMs, mult) {
     allocByYM[ym].cost += parseNum(r['Cost Allocated']) * mult;
     allocByYM[ym].hrs  += parseNum(r['Hours Allocated']);
   });
+  if (budget && budget.rows) {
+    budget.rows.forEach(role => {
+      Object.entries(role.byMonth).forEach(([ym, hrs]) => {
+        budgetByYM[ym] = (budgetByYM[ym] || 0) + hrs * role.rate * mult;
+      });
+    });
+  }
   const todayYM = toYM(new Date(todayMs));
-  return [...new Set([...Object.keys(actByYM), ...Object.keys(allocByYM)])].sort()
-    .map(ym => ({
-      ym,
-      isFuture:   ym >= todayYM,
-      actualCost: Math.round((actByYM[ym]   || {cost:0}).cost),
-      allocCost:  Math.round((allocByYM[ym] || {cost:0}).cost),
-      actualHrs:  Math.round(((actByYM[ym]  || {hrs:0}).hrs) * 10) / 10,
-      allocHrs:   Math.round(((allocByYM[ym]|| {hrs:0}).hrs) * 10) / 10,
-    }));
+  const allYMs = new Set([...Object.keys(actByYM), ...Object.keys(allocByYM), ...Object.keys(budgetByYM)]);
+  return [...allYMs].sort().map(ym => ({
+    ym,
+    isFuture:   ym >= todayYM,
+    actualCost: Math.round((actByYM[ym]   || {cost:0}).cost),
+    allocCost:  Math.round((allocByYM[ym] || {cost:0}).cost),
+    actualHrs:  Math.round(((actByYM[ym]  || {hrs:0}).hrs) * 10) / 10,
+    allocHrs:   Math.round(((allocByYM[ym]|| {hrs:0}).hrs) * 10) / 10,
+    budgetCost: Math.round(budgetByYM[ym] || 0),
+  }));
 }
 
 function mergeMonthly(a, b) {
   const map = {};
   [...a, ...b].forEach(r => {
-    if (!map[r.ym]) map[r.ym] = { ym:r.ym, isFuture:r.isFuture, actualCost:0, allocCost:0, actualHrs:0, allocHrs:0 };
+    if (!map[r.ym]) map[r.ym] = { ym:r.ym, isFuture:r.isFuture, actualCost:0, allocCost:0, actualHrs:0, allocHrs:0, budgetCost:0 };
     map[r.ym].actualCost += r.actualCost;
     map[r.ym].allocCost  += r.allocCost;
     map[r.ym].actualHrs  += r.actualHrs;
     map[r.ym].allocHrs   += r.allocHrs;
+    map[r.ym].budgetCost += r.budgetCost;
   });
   return Object.values(map).sort((a,b) => a.ym.localeCompare(b.ym));
 }
 
-function buildRoleDetailJS(projKey, timeRows, allocRows, budgetRows, projName, todayMs, mult) {
-  const bounds      = PROJECT_BOUNDS[projKey];
-  const totalMonths = monthsBetween(bounds.start, bounds.end);
-  const hasBudget   = budgetRows.length > 0;
+function buildWeekly(timeRows, allocRows, projectName, todayMs, mult, budget) {
+  const actByWk = {}, allocByWk = {}, budgetByWk = {};
+  timeRows.forEach(r => {
+    if (String(r['Project: Name'] || '').trim() !== projectName) return;
+    const d = parseDate(r['Date (Shared)']);
+    if (!d) return;
+    const wk = isoWeekKey(d);
+    if (!actByWk[wk]) actByWk[wk] = { cost:0, hrs:0 };
+    actByWk[wk].cost += parseNum(r['Cost Actual']) * mult;
+    actByWk[wk].hrs  += parseNum(r['Hours Actual']);
+  });
+  allocRows.forEach(r => {
+    if (String(r['Project: Name'] || '').trim() !== projectName) return;
+    const d = parseDate(r['Date (Shared)']);
+    if (!d) return;
+    const wk = isoWeekKey(d);
+    if (!allocByWk[wk]) allocByWk[wk] = { cost:0, hrs:0 };
+    allocByWk[wk].cost += parseNum(r['Cost Allocated']) * mult;
+    allocByWk[wk].hrs  += parseNum(r['Hours Allocated']);
+  });
+  // Interpolate monthly budget into weeks by distributing evenly across weeks in each month
+  if (budget && budget.rows) {
+    budget.rows.forEach(role => {
+      Object.entries(role.byMonth).forEach(([ym, hrs]) => {
+        const [y, m] = ym.split('-').map(Number);
+        const monthStart = new Date(y, m - 1, 1);
+        const monthEnd   = new Date(y, m, 0);
+        const weeks = new Set();
+        for (let d = new Date(monthStart); d <= monthEnd; d.setDate(d.getDate() + 1))
+          weeks.add(isoWeekKey(d));
+        const costPerWeek = (hrs * role.rate * mult) / weeks.size;
+        weeks.forEach(wk => { budgetByWk[wk] = (budgetByWk[wk] || 0) + costPerWeek; });
+      });
+    });
+  }
+  const todayWk = isoWeekKey(new Date(todayMs));
+  const allWks = new Set([...Object.keys(actByWk), ...Object.keys(allocByWk), ...Object.keys(budgetByWk)]);
+  return [...allWks].sort().map(wk => ({
+    wk,
+    isFuture:   wk >= todayWk,
+    actualCost: Math.round((actByWk[wk]   || {cost:0}).cost),
+    allocCost:  Math.round((allocByWk[wk] || {cost:0}).cost),
+    actualHrs:  Math.round(((actByWk[wk]  || {hrs:0}).hrs) * 10) / 10,
+    allocHrs:   Math.round(((allocByWk[wk]|| {hrs:0}).hrs) * 10) / 10,
+    budgetCost: Math.round(budgetByWk[wk] || 0),
+  }));
+}
 
+function mergeWeekly(a, b) {
+  const map = {};
+  [...a, ...b].forEach(r => {
+    if (!map[r.wk]) map[r.wk] = { wk:r.wk, isFuture:r.isFuture, actualCost:0, allocCost:0, actualHrs:0, allocHrs:0, budgetCost:0 };
+    map[r.wk].actualCost += r.actualCost;
+    map[r.wk].allocCost  += r.allocCost;
+    map[r.wk].actualHrs  += r.actualHrs;
+    map[r.wk].allocHrs   += r.allocHrs;
+    map[r.wk].budgetCost += r.budgetCost;
+  });
+  return Object.values(map).sort((a,b) => a.wk.localeCompare(b.wk));
+}
+
+// Role detail: hours only (no $ — budget tab has hours, not cost per period)
+function buildRoleDetailJS(projKey, timeRows, allocRows, budget, projName, todayMs) {
+  const hasBudget = budget && budget.rows && budget.rows.length > 0;
+  const budgetByRole = {};
+  if (hasBudget) {
+    budget.rows.forEach(r => {
+      if (!budgetByRole[r.role]) budgetByRole[r.role] = [];
+      budgetByRole[r.role].push(r);
+    });
+  }
   const roleSet = new Set();
-  budgetRows.forEach(r => { if (r.role) roleSet.add(r.role); });
+  if (hasBudget) budget.rows.forEach(r => { if (r.role) roleSet.add(r.role); });
   timeRows.forEach(r => {
     if (String(r['Project: Name'] || '').trim() === projName && r['Role: Name'])
       roleSet.add(String(r['Role: Name']).trim());
@@ -456,55 +534,41 @@ function buildRoleDetailJS(projKey, timeRows, allocRows, budgetRows, projName, t
 
   const roles = [];
   roleSet.forEach(role => {
-    const bRows       = budgetRows.filter(r => r.role === role);
-    const budgetFees  = bRows.reduce((s, r) => s + (r.kProjCost * mult || 0), 0);
-    const budgetHours = bRows.reduce((s, r) => s + (r.hours || 0), 0);
-
+    const budgetByMonth = {};
+    let budgetHours = 0;
+    if (hasBudget && budgetByRole[role]) {
+      budgetByRole[role].forEach(br => {
+        budgetHours += br.totalHours;
+        Object.entries(br.byMonth).forEach(([mk, hrs]) => {
+          budgetByMonth[mk] = (budgetByMonth[mk] || 0) + hrs;
+        });
+      });
+    }
     const actualByMonth = {};
     timeRows.forEach(r => {
       if (String(r['Project: Name'] || '').trim() !== projName) return;
       if (String(r['Role: Name']    || '').trim() !== role)     return;
       const d = parseDate(r['Date (Shared)']);
       if (!d) return;
-      const mk = toYM(d);
-      const cost = parseNum(r['Cost Actual']) * mult;
-      const hrs  = parseNum(r['Hours Actual']);
-      if (!actualByMonth[mk]) actualByMonth[mk] = { fees:0, hours:0 };
-      actualByMonth[mk].fees  += cost;
-      actualByMonth[mk].hours += hrs;
+      actualByMonth[toYM(d)] = (actualByMonth[toYM(d)] || 0) + parseNum(r['Hours Actual']);
     });
-
     const allocByMonth = {};
     allocRows.forEach(r => {
       if (String(r['Project: Name'] || '').trim() !== projName) return;
       if (String(r['Role: Name']    || '').trim() !== role)     return;
       const d = parseDate(r['Date (Shared)']);
       if (!d || d.getTime() < todayMs) return;
-      const mk = toYM(d);
-      const cost = parseNum(r['Cost Allocated']) * mult;
-      const hrs  = parseNum(r['Hours Allocated']);
-      if (!allocByMonth[mk]) allocByMonth[mk] = { fees:0, hours:0 };
-      allocByMonth[mk].fees  += cost;
-      allocByMonth[mk].hours += hrs;
+      allocByMonth[toYM(d)] = (allocByMonth[toYM(d)] || 0) + parseNum(r['Hours Allocated']);
     });
-
-    const budgetByMonth = {};
-    if (hasBudget && budgetFees > 0) {
-      const perMonth = budgetFees / totalMonths;
-      eachMonth(bounds.start, bounds.end).forEach(mk => { budgetByMonth[mk] = perMonth; });
-    }
-
-    const actualTotal = Object.values(actualByMonth).reduce((s,v) => s + v.fees, 0);
-    const allocTotal  = Object.values(allocByMonth).reduce((s,v)  => s + v.fees, 0);
+    const actualTotal = Object.values(actualByMonth).reduce((s,v) => s + v, 0);
+    const allocTotal  = Object.values(allocByMonth).reduce((s,v)  => s + v, 0);
     const eac         = actualTotal + allocTotal;
-    const variance    = hasBudget ? budgetFees - eac : null;
-
-    roles.push({ role, budgetFees, budgetHours, hasBudget, actualTotal, allocTotal, eac, variance,
+    const variance    = hasBudget ? budgetHours - eac : null;
+    roles.push({ role, budgetHours, hasBudget, actualTotal, allocTotal, eac, variance,
                  budgetByMonth, actualByMonth, allocByMonth });
   });
 
-  roles.sort((a,b) => (b.budgetFees - a.budgetFees) || (b.actualTotal - a.actualTotal) || a.role.localeCompare(b.role));
-
+  roles.sort((a,b) => (b.budgetHours - a.budgetHours) || (b.actualTotal - a.actualTotal) || a.role.localeCompare(b.role));
   return { roles, hasBudget, allMonths: collectAllPeriodKeys(roles), allWeeks: [] };
 }
 
@@ -526,7 +590,6 @@ function mergeRoleDetails(intD, linD) {
         map[r.role] = JSON.parse(JSON.stringify(r));
       } else {
         const m = map[r.role];
-        m.budgetFees  += r.budgetFees;
         m.budgetHours += r.budgetHours;
         m.actualTotal += r.actualTotal;
         m.allocTotal  += r.allocTotal;
@@ -535,18 +598,13 @@ function mergeRoleDetails(intD, linD) {
         else m.variance = null;
         Object.entries(r.budgetByMonth || {}).forEach(([k,v]) => { m.budgetByMonth[k] = (m.budgetByMonth[k]||0) + v; });
         ['actualByMonth','allocByMonth'].forEach(key => {
-          Object.entries(r[key] || {}).forEach(([k,v]) => {
-            if (!m[key][k]) m[key][k] = { fees:0, hours:0 };
-            m[key][k].fees  += v.fees  || 0;
-            m[key][k].hours += v.hours || 0;
-          });
+          Object.entries(r[key] || {}).forEach(([k,v]) => { m[key][k] = (m[key][k]||0) + v; });
         });
       }
     });
   }
-  absorb(intD);
-  absorb(linD);
-  const roles = Object.values(map).sort((a,b) => (b.budgetFees - a.budgetFees) || (b.actualTotal - a.actualTotal) || a.role.localeCompare(b.role));
+  absorb(intD); absorb(linD);
+  const roles = Object.values(map).sort((a,b) => (b.budgetHours-a.budgetHours)||(b.actualTotal-a.actualTotal)||a.role.localeCompare(b.role));
   const hasBudget = intD.hasBudget || linD.hasBudget;
   return { roles, hasBudget, allMonths: collectAllPeriodKeys(roles), allWeeks: [] };
 }
@@ -562,10 +620,7 @@ function eachMonth(start, end) {
 function parseDate(val) {
   if (!val && val !== 0) return null;
   if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
-  if (typeof val === 'number') {
-    // Google Sheets serial date: days since Dec 30, 1899
-    return new Date(Math.round((val - 25569) * 86400 * 1000));
-  }
+  if (typeof val === 'number') return new Date(Math.round((val - 25569) * 86400 * 1000));
   const d = new Date(val);
   return isNaN(d.getTime()) ? null : d;
 }
@@ -579,15 +634,17 @@ function parseNum(val) {
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 const fmt$ = n => { if(n===null||n===undefined)return'—'; return(n<0?'-$':'$')+Math.round(Math.abs(n)).toLocaleString(); };
 const fmtK = n => { if(!n&&n!==0)return'—'; return(n<0?'-$':'$')+Math.round(Math.abs(n)/1000)+'k'; };
+const fmtH = v => { if(!v) return ''; return Math.round(v); };
 const moLbl = ym => { const[y,m]=ym.split('-'); return['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+"'"+y.slice(2); };
+const wkLbl = wk => { const p=wk.split('-W'); return'W'+p[1]+"'"+p[0].slice(2); };
 const eacCls = pct => pct>4?'ok':pct>=0?'warn':'bad';
 const charts = {};
 const killC = (...ids) => ids.forEach(id=>{if(charts[id]){charts[id].destroy();delete charts[id];}});
 
-function futureBgPlugin(monthly){
+function futureBgPlugin(series, wkMode) {
   return{id:'fg',beforeDraw(chart){
     const{ctx,chartArea:ca,scales}=chart;if(!ca)return;
-    const idx=monthly.findIndex(r=>r.isFuture);if(idx<0)return;
+    const idx=series.findIndex(r=>r.isFuture);if(idx<0)return;
     const x=scales.x.getPixelForValue(idx-0.5);
     ctx.save();ctx.fillStyle='rgba(79,142,247,0.05)';
     ctx.fillRect(x,ca.top,ca.right-x,ca.bottom-ca.top);ctx.restore();
@@ -602,25 +659,64 @@ function zeroPlugin(){
   }};
 }
 
+// ── CHART STATE ───────────────────────────────────────────────────────────────
+const chartState = {};
+
+function setChartPeriod(key, p) {
+  chartState[key] = p;
+  document.getElementById('cptm-'+key).className = 'rc-btn'+(p==='monthly'?' on':'');
+  document.getElementById('cptw-'+key).className = 'rc-btn'+(p==='weekly'?' on':'');
+  buildChart(key);
+}
+
+function buildChart(key) {
+  const cmId = 'cm'+key;
+  killC(cmId);
+  const isWeekly = chartState[key] === 'weekly';
+  const series   = isWeekly ? (WEEKLY[key]||[]) : (MONTHLY[key]||[]);
+  const labels   = series.map(r => isWeekly ? wkLbl(r.wk) : moLbl(r.ym));
+  const actData    = series.map(r => r.actualCost);
+  const allocData  = series.map(r => r.allocCost);
+  const budgetData = series.map(r => r.budgetCost || null);
+
+  const wrap = document.getElementById('cwrap-'+key);
+  const canvas = document.getElementById(cmId);
+  if (isWeekly) {
+    const minW = Math.max(series.length * 14, 600);
+    wrap.style.overflowX = 'auto';
+    canvas.style.minWidth = minW + 'px';
+    canvas.style.width    = minW + 'px';
+  } else {
+    wrap.style.overflowX = 'hidden';
+    canvas.style.minWidth = '';
+    canvas.style.width    = '';
+  }
+
+  const gC='rgba(255,255,255,0.05)', tf={size:9,family:"'DM Mono',monospace",color:'#5c6278'}, yf={size:10,family:"'DM Mono',monospace",color:'#9da3b4'};
+  charts[cmId] = new Chart(canvas, {
+    type:'bar', plugins:[futureBgPlugin(series)],
+    data:{labels, datasets:[
+      {label:'Actual cost',    data:actData,    backgroundColor:'rgba(79,142,247,0.8)',borderRadius:3,order:3},
+      {label:'K allocated',    data:allocData,  type:'line',borderColor:'#3ecf8e',backgroundColor:'transparent',borderWidth:2,pointRadius:1.5,tension:0.3,order:2},
+      {label:'Planned budget', data:budgetData, type:'line',borderColor:'rgba(245,165,36,0.85)',backgroundColor:'transparent',borderWidth:1.5,borderDash:[5,3],pointRadius:0,tension:0.3,order:1},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(24,27,36,0.95)',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,titleColor:'#f0f1f4',bodyColor:'#9da3b4',padding:10,callbacks:{label:c=>` ${c.dataset.label}: ${fmtK(c.parsed.y)}`}}},
+      scales:{x:{ticks:{autoSkip:true,maxTicksLimit:isWeekly?52:20,maxRotation:45,font:tf},grid:{color:gC},border:{color:'transparent'}},y:{ticks:{font:yf,callback:v=>fmtK(v)},grid:{color:gC},border:{color:'transparent'}}}}
+  });
+}
+
 // ── BUILD PANE ────────────────────────────────────────────────────────────────
 const built={};
 function buildPane(key){
-  const kd=KD[key], fut=FUTURE[key]||{laborCost:0,hrs:0}, monthly=MONTHLY[key]||[];
+  chartState[key] = 'monthly';
+  const kd=KD[key], fut=FUTURE[key]||{laborCost:0,hrs:0};
   const ec=eacCls(parseFloat(kd.eacMarginPct));
   const totalBudget=kd.laborBudget+kd.subsBudget;
   const eacVsBudget=Math.round((kd.totalEAC/totalBudget-1)*100);
   const bannerCls=parseFloat(kd.eacMarginPct)>=4?'ok':parseFloat(kd.eacMarginPct)>=0?'warn':'bad';
   const erosion=(parseFloat(kd.eacMarginPct)-kd.samPct).toFixed(1);
   const erosionSign=parseFloat(erosion)>=0?'+':'';
-
-  const labels=monthly.map(r=>moLbl(r.ym));
-  const actData=monthly.map(r=>r.actualCost);
-  const allocData=monthly.map(r=>r.allocCost);
-  const varData=monthly.map(r=>r.isFuture?null:r.actualCost-r.allocCost);
-  const varColors=varData.map(v=>v===null?'transparent':v>0?'rgba(242,100,100,0.8)':'rgba(62,207,142,0.7)');
-
-  const cmId='cm'+key, cvId='cv'+key;
-  killC(cmId,cvId);
 
   document.getElementById('p-'+key).innerHTML=`
     <div class="banner ${bannerCls}">
@@ -642,46 +738,29 @@ function buildPane(key){
       <div class="kcard ${ec==='ok'?'c-eac-ok':ec==='warn'?'c-eac-warn':'c-eac-bad'}"><div class="klabel">EAC Total Cost</div><div class="kval ${ec}">${fmt$(kd.totalEAC)}</div><div class="ksub">${eacVsBudget>0?'+':''}${eacVsBudget}% vs planned budget</div></div>
     </div>
     <div class="cbox">
-      <div class="ctitle">Monthly labor cost — actuals vs allocations</div>
-      <div class="csub">Bars = actual loaded cost. Line = Kantata allocated cost. Shaded = future window.</div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:3px">
+        <div>
+          <div class="ctitle">Labor cost — actuals vs allocations vs budget</div>
+          <div class="csub">Bars = actual loaded cost · Line = Kantata allocated · Dashed = planned budget · Shaded = future</div>
+        </div>
+        <div class="rc-toggle" style="flex-shrink:0;margin-left:12px">
+          <button class="rc-btn on" id="cptm-${key}" onclick="setChartPeriod('${key}','monthly')">Monthly</button>
+          <button class="rc-btn"    id="cptw-${key}" onclick="setChartPeriod('${key}','weekly')">Weekly</button>
+        </div>
+      </div>
       <div class="leg">
         <span><span class="ls" style="background:#4f8ef7"></span>Actual cost</span>
         <span><span class="ll" style="background:#3ecf8e"></span>K allocated cost</span>
+        <span><span class="ll" style="background:rgba(245,165,36,0.85)"></span>Planned budget</span>
         <span><span class="ls" style="background:rgba(79,142,247,0.15);border:1px solid rgba(79,142,247,0.3)"></span>Future</span>
       </div>
-      <div class="cw"><canvas id="${cmId}"></canvas></div>
-    </div>
-    <div class="cbox">
-      <div class="ctitle">Monthly variance — actual vs allocated cost</div>
-      <div class="csub">Red = over-allocated · Green = under-allocated · Future months not shown</div>
-      <div class="cws"><canvas id="${cvId}"></canvas></div>
+      <div id="cwrap-${key}" class="cw"><canvas id="cm${key}"></canvas></div>
     </div>
     <p class="note">† Subs treated as fully future (budgeted amounts). Config values from K PDF dashboard — update config tab after each K export.</p>
     ${buildRoleSection(key)}
   `;
 
-  const gC='rgba(255,255,255,0.05)', tf={size:9,family:"'DM Mono',monospace",color:'#5c6278'}, yf={size:10,family:"'DM Mono',monospace",color:'#9da3b4'};
-
-  charts[cmId]=new Chart(document.getElementById(cmId),{
-    type:'bar', plugins:[futureBgPlugin(monthly)],
-    data:{labels,datasets:[
-      {label:'Actual cost',data:actData,backgroundColor:'rgba(79,142,247,0.8)',borderRadius:3,order:2},
-      {label:'K allocated cost',data:allocData,type:'line',borderColor:'#3ecf8e',backgroundColor:'transparent',borderWidth:2,pointRadius:1.5,tension:0.3,order:1}
-    ]},
-    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(24,27,36,0.95)',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,titleColor:'#f0f1f4',bodyColor:'#9da3b4',padding:10,callbacks:{label:c=>` ${c.dataset.label}: ${fmt$(c.parsed.y)}`}}},
-      scales:{x:{ticks:{autoSkip:true,maxTicksLimit:20,maxRotation:45,font:tf},grid:{color:gC},border:{color:'transparent'}},y:{ticks:{font:yf,callback:v=>fmtK(v)},grid:{color:gC},border:{color:'transparent'}}}}
-  });
-
-  charts[cvId]=new Chart(document.getElementById(cvId),{
-    type:'bar', plugins:[zeroPlugin()],
-    data:{labels,datasets:[{label:'Variance',data:varData,backgroundColor:varColors,borderRadius:3}]},
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(24,27,36,0.95)',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,titleColor:'#f0f1f4',bodyColor:'#9da3b4',padding:10,callbacks:{label:c=>c.parsed.y!=null?` ${c.parsed.y>=0?'+':''}${fmt$(c.parsed.y)}`:'(future)'}}},
-      scales:{x:{ticks:{autoSkip:true,maxTicksLimit:20,maxRotation:45,font:tf},grid:{color:gC},border:{color:'transparent'}},y:{ticks:{font:yf,callback:v=>fmtK(v)},grid:{color:gC},border:{color:'transparent'},afterDataLimits(ax){const ab=Math.max(Math.abs(ax.min),Math.abs(ax.max));ax.min=-ab*1.2;ax.max=ab*1.2;}}}}
-  });
-
-  // Render role detail table if data available
+  buildChart(key);
   if (RAW.roleDetail && RAW.roleDetail[key]) {
     setTimeout(() => renderRoleTable(key), 0);
   }
@@ -692,17 +771,16 @@ function buildPane(key){
 const roleState = {};
 
 function buildRoleSection(key) {
-  roleState[key] = { period: 'monthly', window: 'future' };
+  roleState[key] = { window: 'future' };
   const detail = RAW.roleDetail && RAW.roleDetail[key];
   if (!detail || !detail.roles || !detail.roles.length) return '';
-
   const hasBudget = detail.hasBudget;
   return `
     <div class="role-section">
       <div class="role-header">
         <div class="role-header-left">
-          <h3>Role Detail — ${hasBudget ? 'Budget vs ' : ''}Actuals vs Allocations</h3>
-          <p>Labor only · Cost × ${META.mult} overhead · ${hasBudget ? 'Budget distributed flat across project timeline' : 'Add budget-plan-int / budget-plan-lin tabs to unlock budget comparison'}</p>
+          <h3>Role Detail — ${hasBudget ? 'Budget vs ' : ''}Actuals vs Allocations (hours)</h3>
+          <p>Labor hours · ${hasBudget ? 'Budget from planning tab (monthly hours by role)' : 'Add bud-int-hrs / bud-lin-hrs tabs to unlock budget comparison'}</p>
         </div>
         <div class="role-controls">
           <select class="rc-select" id="rwin-${key}" onchange="setRWin('${key}',this.value)">
@@ -712,28 +790,18 @@ function buildRoleSection(key) {
             <option value="6m">Next 6 Months</option>
             <option value="12m">Next 12 Months</option>
           </select>
-          <div class="rc-toggle">
-            <button class="rc-btn on" id="rptm-${key}" onclick="setRPeriod('${key}','monthly')">Monthly</button>
-            <button class="rc-btn" id="rptw-${key}" onclick="setRPeriod('${key}','weekly')">Weekly</button>
-          </div>
         </div>
       </div>
       <div class="role-table-wrap" id="rtw-${key}"></div>
       <div class="role-legend">
-        ${hasBudget ? '<div class="rl"><div class="rl-dot" style="background:#b8a9ff"></div> Budget (flat dist.)</div>' : ''}
-        <div class="rl"><div class="rl-dot" style="background:#7ab4f5"></div> Actuals (past)</div>
-        <div class="rl"><div class="rl-dot" style="background:#f5c842"></div> Allocations (future)</div>
+        ${hasBudget ? '<div class="rl"><div class="rl-dot" style="background:#b8a9ff"></div> Budget hours</div>' : ''}
+        <div class="rl"><div class="rl-dot" style="background:#7ab4f5"></div> Actual hours (past)</div>
+        <div class="rl"><div class="rl-dot" style="background:#f5c842"></div> Allocated hours (future)</div>
       </div>
     </div>
   `;
 }
 
-function setRPeriod(key, p) {
-  roleState[key].period = p;
-  document.getElementById('rptm-'+key).className = 'rc-btn'+(p==='monthly'?' on':'');
-  document.getElementById('rptw-'+key).className = 'rc-btn'+(p==='weekly'?' on':'');
-  renderRoleTable(key);
-}
 function setRWin(key, w) {
   roleState[key].window = w;
   renderRoleTable(key);
@@ -742,40 +810,34 @@ function setRWin(key, w) {
 function renderRoleTable(key) {
   const detail = RAW.roleDetail && RAW.roleDetail[key];
   if (!detail) return;
-  const { period, window: win } = roleState[key];
-  const isMonthly = period === 'monthly';
-  const allPeriods = isMonthly ? detail.allMonths : detail.allWeeks;
+  const { window: win } = roleState[key];
+  const allPeriods = detail.allMonths;
   const today = new Date();
-  const todayYM = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0');
-  const todayCursor = isMonthly ? todayYM : isoWeekKey(today);
+  const todayCursor = toYM(today);
 
   let periods = allPeriods;
-  if (win === 'past') periods = allPeriods.filter(p => p < todayCursor);
+  if (win === 'past')   periods = allPeriods.filter(p => p < todayCursor);
   else if (win === 'future') periods = allPeriods.filter(p => p >= todayCursor);
   else if (win === '6m' || win === '12m') {
-    const months = win === '6m' ? 6 : 12;
-    const endDate = new Date(today); endDate.setMonth(endDate.getMonth() + months);
-    const endKey = isMonthly ? toYM(endDate) : isoWeekKey(endDate);
+    const endDate = new Date(today);
+    endDate.setMonth(endDate.getMonth() + (win === '6m' ? 6 : 12));
+    const endKey = toYM(endDate);
     periods = allPeriods.filter(p => p >= todayCursor && p <= endKey);
   }
 
   const hasBudget = detail.hasBudget;
-  const bk = isMonthly ? 'budgetByMonth' : 'budgetByWeek';
-  const ak = isMonthly ? 'actualByMonth' : 'actualByWeek';
-  const lk = isMonthly ? 'allocByMonth'  : 'allocByWeek';
 
-  // Thead
   let thead = `<thead><tr class="rth-top">
     <th class="rn" rowspan="2">Role</th>
-    ${hasBudget ? '<th class="nm" rowspan="2" style="text-align:right">Budget</th>' : ''}
-    <th class="nm" rowspan="2" style="text-align:right">Actuals</th>
-    <th class="nm" rowspan="2" style="text-align:right">Alloc</th>
-    <th class="nm" rowspan="2" style="text-align:right">EAC</th>
-    ${hasBudget ? '<th class="nm" rowspan="2" style="text-align:right">Variance</th>' : ''}`;
+    ${hasBudget ? '<th class="nm" rowspan="2" style="text-align:right">Bud hrs</th>' : ''}
+    <th class="nm" rowspan="2" style="text-align:right">Act hrs</th>
+    <th class="nm" rowspan="2" style="text-align:right">Alloc hrs</th>
+    <th class="nm" rowspan="2" style="text-align:right">EAC hrs</th>
+    ${hasBudget ? '<th class="nm" rowspan="2" style="text-align:right">Var hrs</th>' : ''}`;
   periods.forEach(p => {
     const isCur = p === todayCursor;
     const style = isCur ? 'background:rgba(79,142,247,0.08);' : '';
-    thead += `<th class="pg" colspan="${hasBudget?3:2}" style="${style}">${rPeriodLabel(p,isMonthly,isCur)}</th>`;
+    thead += `<th class="pg" colspan="${hasBudget?3:2}" style="${style}">${rPeriodLabel(p,isCur)}</th>`;
   });
   thead += `</tr><tr class="rth-sub">`;
   periods.forEach(() => {
@@ -784,61 +846,55 @@ function renderRoleTable(key) {
   });
   thead += `</tr></thead>`;
 
-  // Tbody + totals
   const pTot = {};
   periods.forEach(p => { pTot[p] = {act:0,alc:0,bud:0}; });
-  let tBud=0, tAct=0, tAlc=0, tEAC=0, tVar=0, hasVar=false;
+  let tBud=0, tAct=0, tAlc=0, tEAC=0, tVar=0;
 
   let tbody = '<tbody>';
   detail.roles.forEach(role => {
     const vc = (role.variance||0) >= 0 ? 'pos' : 'neg';
     tbody += `<tr>
       <td class="rn">${esc(role.role)}</td>
-      ${hasBudget ? `<td class="nm c-b">${fmtRCell(role.budgetFees)}</td>` : ''}
-      <td class="nm c-a">${fmtRCell(role.actualTotal)}</td>
-      <td class="nm c-l">${fmtRCell(role.allocTotal)}</td>
-      <td class="nm c-e">${fmtRCell(role.eac)}</td>
-      ${hasBudget ? `<td class="nm c-v ${vc}">${role.variance!=null?fmtRCell(role.variance):''}</td>` : ''}`;
+      ${hasBudget ? `<td class="nm c-b">${fmtH(role.budgetHours)}</td>` : ''}
+      <td class="nm c-a">${fmtH(role.actualTotal)}</td>
+      <td class="nm c-l">${fmtH(role.allocTotal)}</td>
+      <td class="nm c-e">${fmtH(role.eac)}</td>
+      ${hasBudget ? `<td class="nm c-v ${vc}">${role.variance!=null?fmtH(role.variance):''}</td>` : ''}`;
     periods.forEach(p => {
-      const av = role[ak][p], lv = role[lk][p], bv = role[bk][p]||0;
-      const a = av?(av.fees||0):0, l = lv?(lv.fees||0):0;
+      const a  = role.actualByMonth[p]  || 0;
+      const l  = role.allocByMonth[p]   || 0;
+      const bv = role.budgetByMonth[p]  || 0;
       pTot[p].act += a; pTot[p].alc += l; pTot[p].bud += bv;
-      tbody += `<td class="nm c-a ps">${fmtRCell(a)}</td><td class="nm c-l">${fmtRCell(l)}</td>`;
-      if (hasBudget) tbody += `<td class="nm c-b">${fmtRCell(bv)}</td>`;
+      tbody += `<td class="nm c-a ps">${fmtH(a)}</td><td class="nm c-l">${fmtH(l)}</td>`;
+      if (hasBudget) tbody += `<td class="nm c-b">${fmtH(bv)}</td>`;
     });
     tbody += '</tr>';
-    tBud += role.budgetFees||0; tAct += role.actualTotal||0;
-    tAlc += role.allocTotal||0; tEAC += role.eac||0;
-    if (role.variance!=null) { tVar += role.variance; hasVar = true; }
+    tBud += role.budgetHours||0; tAct += role.actualTotal||0;
+    tAlc += role.allocTotal||0;  tEAC += role.eac||0;
+    if (role.variance!=null) tVar += role.variance;
   });
   tbody += '</tbody>';
 
   const tvc = tVar>=0?'pos':'neg';
   let tfoot = `<tfoot><tr>
     <td class="rn">TOTAL</td>
-    ${hasBudget ? `<td class="nm c-b">${fmtRCell(tBud)}</td>` : ''}
-    <td class="nm c-a">${fmtRCell(tAct)}</td>
-    <td class="nm c-l">${fmtRCell(tAlc)}</td>
-    <td class="nm c-e">${fmtRCell(tEAC)}</td>
-    ${hasBudget ? `<td class="nm c-v ${tvc}">${fmtRCell(tVar)}</td>` : ''}`;
+    ${hasBudget ? `<td class="nm c-b">${fmtH(tBud)}</td>` : ''}
+    <td class="nm c-a">${fmtH(tAct)}</td>
+    <td class="nm c-l">${fmtH(tAlc)}</td>
+    <td class="nm c-e">${fmtH(tEAC)}</td>
+    ${hasBudget ? `<td class="nm c-v ${tvc}">${fmtH(tVar)}</td>` : ''}`;
   periods.forEach(p => {
-    tfoot += `<td class="nm c-a ps">${fmtRCell(pTot[p].act)}</td><td class="nm c-l">${fmtRCell(pTot[p].alc)}</td>`;
-    if (hasBudget) tfoot += `<td class="nm c-b">${fmtRCell(pTot[p].bud)}</td>`;
+    tfoot += `<td class="nm c-a ps">${fmtH(pTot[p].act)}</td><td class="nm c-l">${fmtH(pTot[p].alc)}</td>`;
+    if (hasBudget) tfoot += `<td class="nm c-b">${fmtH(pTot[p].bud)}</td>`;
   });
   tfoot += '</tr></tfoot>';
 
   document.getElementById('rtw-'+key).innerHTML = `<table class="rtbl">${thead}${tbody}${tfoot}</table>`;
 }
 
-function rPeriodLabel(p, isMonthly, isCur) {
-  let lbl;
-  if (isMonthly) {
-    const [y,m] = p.split('-');
-    lbl = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+"'"+y.slice(2);
-  } else {
-    const parts = p.split('-W');
-    lbl = 'W'+parts[1]+"'"+parts[0].slice(2);
-  }
+function rPeriodLabel(p, isCur) {
+  const [y,m] = p.split('-');
+  const lbl = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+"'"+y.slice(2);
   return isCur ? `<em style="color:var(--blue)">${lbl}●</em>` : lbl;
 }
 function fmtRCell(v) { if (!v) return ''; return (v<0?'-$':'$')+Math.round(Math.abs(v)/1000)+'k'; }
