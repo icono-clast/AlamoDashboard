@@ -270,7 +270,6 @@ function buildDashboardData(tabData) {
   const budgetInt = parseBudgetTab(tabData['bud-int-hrs'] || []);
   const budgetLin = parseBudgetTab(tabData['bud-lin-hrs'] || []);
 
-  console.log('time cols:', timeRows[0] ? Object.keys(timeRows[0]).filter(k=>k.toLowerCase().includes('cost')||k.toLowerCase().includes('fee')||k.toLowerCase().includes('bill')) : 'NO ROWS');
   const subsBudgets  = computeSubsBudgets(taskRows);
   const laborActuals = {
     int: sumLaborActuals(timeRows, PROJ_INT, mult),
