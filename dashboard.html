@@ -270,8 +270,6 @@ function buildDashboardData(tabData) {
   const budgetInt = parseBudgetTab(tabData['bud-int-hrs'] || []);
   const budgetLin = parseBudgetTab(tabData['bud-lin-hrs'] || []);
 
-  console.log('task cols:', taskRows[0] ? Object.keys(taskRows[0]) : 'NO ROWS');
-  console.log('task sample:', taskRows[0]);
   const subsBudgets  = computeSubsBudgets(taskRows);
   const laborActuals = {
     int: sumLaborActuals(timeRows, PROJ_INT, mult),
@@ -329,7 +327,7 @@ function readConfig(data2D) {
 function readSheetFromMarker(data2D, markerText) {
   let headerRow = -1;
   for (let i = 0; i < data2D.length; i++) {
-    if (data2D[i].join('|').indexOf(markerText) !== -1) { headerRow = i; break; }
+    if (data2D[i].some(cell => String(cell).trim() === markerText)) { headerRow = i; break; }
   }
   if (headerRow === -1) return [];
   const headers = data2D[headerRow].map(h => String(h).trim());
