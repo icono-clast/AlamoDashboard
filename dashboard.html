@@ -74,7 +74,7 @@
   .role-table-wrap::-webkit-scrollbar{height:5px;width:5px}
   .role-table-wrap::-webkit-scrollbar-track{background:var(--bg)}
   .role-table-wrap::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
-  .rtbl{width:100%;border-collapse:collapse;font-size:11px;min-width:700px}
+  .rtbl{width:100%;border-collapse:collapse;font-size:11px;min-width:420px}
   .rtbl thead{position:sticky;top:0;z-index:10}
   .rtbl thead .rth-top th{background:var(--bg3);padding:7px 10px;font-family:var(--mono);font-weight:500;font-size:9.5px;letter-spacing:.07em;color:var(--text3);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border2)}
   .rtbl thead .rth-top th.pg{border-left:1px solid var(--border2);color:var(--blue);text-align:center}
@@ -701,6 +701,16 @@ function buildChart(key) {
       {label:'Planned budget', data:budgetData, type:'line',borderColor:'rgba(245,165,36,0.85)',backgroundColor:'transparent',borderWidth:1.5,borderDash:[5,3],pointRadius:0,tension:0.3,order:1},
     ]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      onClick:(evt,els)=>{
+        if(!els||!els.length){setRolePeriod(key,null);return;}
+        const idx=els[0].index;
+        const iw=chartState[key]==='weekly';
+        const ser=iw?(WEEKLY[key]||[]):(MONTHLY[key]||[]);
+        if(idx>=ser.length)return;
+        const rk=iw?isoWeekToYM(ser[idx].wk):ser[idx].ym;
+        (roleState[key]&&roleState[key].selectedPeriod===rk)?setRolePeriod(key,null):setRolePeriod(key,rk);
+      },
+      onHover:(evt,els)=>{if(evt.native)evt.native.target.style.cursor=els.length?'pointer':'default';},
       plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(24,27,36,0.95)',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,titleColor:'#f0f1f4',bodyColor:'#9da3b4',padding:10,callbacks:{label:c=>` ${c.dataset.label}: ${fmtK(c.parsed.y)}`}}},
       scales:{x:{ticks:{autoSkip:true,maxTicksLimit:isWeekly?52:20,maxRotation:45,font:tf},grid:{color:gC},border:{color:'transparent'}},y:{ticks:{font:yf,callback:v=>fmtK(v)},grid:{color:gC},border:{color:'transparent'}}}}
   });
@@ -771,7 +781,7 @@ function buildPane(key){
 const roleState = {};
 
 function buildRoleSection(key) {
-  roleState[key] = { window: 'future' };
+  roleState[key] = { selectedPeriod: null };
   const detail = RAW.roleDetail && RAW.roleDetail[key];
   if (!detail || !detail.roles || !detail.roles.length) return '';
   const hasBudget = detail.hasBudget;
@@ -779,117 +789,109 @@ function buildRoleSection(key) {
     <div class="role-section">
       <div class="role-header">
         <div class="role-header-left">
-          <h3>Role Detail — ${hasBudget ? 'Budget vs ' : ''}Actuals vs Allocations (hours)</h3>
-          <p>Labor hours · ${hasBudget ? 'Budget from planning tab (monthly hours by role)' : 'Add bud-int-hrs / bud-lin-hrs tabs to unlock budget comparison'}</p>
+          <h3>Role Detail (hours)</h3>
+          <p id="rctx-${key}">Project totals — click a chart bar to drill into a period</p>
         </div>
-        <div class="role-controls">
-          <select class="rc-select" id="rwin-${key}" onchange="setRWin('${key}',this.value)">
-            <option value="future" selected>Future Only</option>
-            <option value="all">All Periods</option>
-            <option value="past">Past Only</option>
-            <option value="6m">Next 6 Months</option>
-            <option value="12m">Next 12 Months</option>
-          </select>
+        <div class="role-controls" id="rclear-${key}" style="display:none">
+          <button class="rc-btn on" onclick="setRolePeriod('${key}',null)" style="border-radius:6px;border:1px solid var(--border2)">× Clear</button>
         </div>
       </div>
       <div class="role-table-wrap" id="rtw-${key}"></div>
       <div class="role-legend">
-        ${hasBudget ? '<div class="rl"><div class="rl-dot" style="background:#b8a9ff"></div> Budget hours</div>' : ''}
-        <div class="rl"><div class="rl-dot" style="background:#7ab4f5"></div> Actual hours (past)</div>
-        <div class="rl"><div class="rl-dot" style="background:#f5c842"></div> Allocated hours (future)</div>
+        ${hasBudget ? '<div class="rl"><div class="rl-dot" style="background:#b8a9ff"></div> Plan hrs</div>' : ''}
+        <div class="rl"><div class="rl-dot" style="background:#7ab4f5"></div> Actual hrs</div>
+        <div class="rl"><div class="rl-dot" style="background:#f5c842"></div> Allocated hrs</div>
       </div>
     </div>
   `;
 }
 
-function setRWin(key, w) {
-  roleState[key].window = w;
+function setRolePeriod(key, period) {
+  if (roleState[key]) roleState[key].selectedPeriod = period;
   renderRoleTable(key);
+}
+
+function isoWeekToYM(wk) {
+  const parts = wk.split('-W');
+  const year = parseInt(parts[0]), week = parseInt(parts[1]);
+  const jan4 = new Date(year, 0, 4);
+  const dow = jan4.getDay() || 7;
+  const week1Mon = new Date(jan4.getTime() - (dow - 1) * 86400000);
+  const wkThu = new Date(week1Mon.getTime() + ((week - 1) * 7 + 3) * 86400000);
+  return toYM(wkThu);
 }
 
 function renderRoleTable(key) {
   const detail = RAW.roleDetail && RAW.roleDetail[key];
   if (!detail) return;
-  const { window: win } = roleState[key];
-  const allPeriods = detail.allMonths;
-  const today = new Date();
-  const todayCursor = toYM(today);
-
-  let periods = allPeriods;
-  if (win === 'past')   periods = allPeriods.filter(p => p < todayCursor);
-  else if (win === 'future') periods = allPeriods.filter(p => p >= todayCursor);
-  else if (win === '6m' || win === '12m') {
-    const endDate = new Date(today);
-    endDate.setMonth(endDate.getMonth() + (win === '6m' ? 6 : 12));
-    const endKey = toYM(endDate);
-    periods = allPeriods.filter(p => p >= todayCursor && p <= endKey);
-  }
-
+  const period = roleState[key] && roleState[key].selectedPeriod;
   const hasBudget = detail.hasBudget;
 
-  let thead = `<thead><tr class="rth-top">
-    <th class="rn" rowspan="2">Role</th>
-    ${hasBudget ? '<th class="nm" rowspan="2" style="text-align:right">Bud hrs</th>' : ''}
-    <th class="nm" rowspan="2" style="text-align:right">Act hrs</th>
-    <th class="nm" rowspan="2" style="text-align:right">Alloc hrs</th>
-    <th class="nm" rowspan="2" style="text-align:right">EAC hrs</th>
-    ${hasBudget ? '<th class="nm" rowspan="2" style="text-align:right">Var hrs</th>' : ''}`;
-  periods.forEach(p => {
-    const isCur = p === todayCursor;
-    const style = isCur ? 'background:rgba(79,142,247,0.08);' : '';
-    thead += `<th class="pg" colspan="${hasBudget?3:2}" style="${style}">${rPeriodLabel(p,isCur)}</th>`;
-  });
-  thead += `</tr><tr class="rth-sub">`;
-  periods.forEach(() => {
-    thead += `<th class="c-a ps">Act</th><th class="c-l">Alc</th>`;
-    if (hasBudget) thead += `<th class="c-b">Bud</th>`;
-  });
-  thead += `</tr></thead>`;
+  // Update context label and clear button
+  const ctxEl   = document.getElementById('rctx-'   + key);
+  const clearEl = document.getElementById('rclear-' + key);
+  if (period) {
+    const lbl = moLbl(period);
+    if (ctxEl)   ctxEl.textContent = 'Drill-down: ' + lbl + ' — showing hours for this period only';
+    if (clearEl) clearEl.style.display = '';
+  } else {
+    if (ctxEl)   ctxEl.textContent = 'Project totals — click a chart bar to drill into a period';
+    if (clearEl) clearEl.style.display = 'none';
+  }
 
-  const pTot = {};
-  periods.forEach(p => { pTot[p] = {act:0,alc:0,bud:0}; });
-  let tBud=0, tAct=0, tAlc=0, tEAC=0, tVar=0;
+  const thead = `<thead><tr class="rth-top">
+    <th class="rn">Role</th>
+    ${hasBudget ? '<th class="nm" style="text-align:right">Plan hrs</th>' : ''}
+    <th class="nm" style="text-align:right">Act hrs</th>
+    <th class="nm" style="text-align:right">Alloc hrs</th>
+    <th class="nm" style="text-align:right">EAC hrs</th>
+    ${hasBudget ? '<th class="nm" style="text-align:right">Var hrs</th>' : ''}
+  </tr></thead>`;
 
+  let tBud=0, tAct=0, tAlc=0, tEAC=0, tVar=0, hasVar=false;
   let tbody = '<tbody>';
   detail.roles.forEach(role => {
-    const vc = (role.variance||0) >= 0 ? 'pos' : 'neg';
+    let bud, act, alc, eac, variance;
+    if (period) {
+      bud      = hasBudget ? (role.budgetByMonth[period] || 0) : null;
+      act      = role.actualByMonth[period]  || 0;
+      alc      = role.allocByMonth[period]   || 0;
+      eac      = act + alc;
+      variance = hasBudget ? ((bud||0) - eac) : null;
+      if (!bud && !act && !alc) return;
+    } else {
+      bud      = hasBudget ? role.budgetHours : null;
+      act      = role.actualTotal;
+      alc      = role.allocTotal;
+      eac      = role.eac;
+      variance = hasBudget ? role.variance : null;
+    }
+    if (variance != null) hasVar = true;
+    const vc = (variance || 0) >= 0 ? 'pos' : 'neg';
     tbody += `<tr>
       <td class="rn">${esc(role.role)}</td>
-      ${hasBudget ? `<td class="nm c-b">${fmtH(role.budgetHours)}</td>` : ''}
-      <td class="nm c-a">${fmtH(role.actualTotal)}</td>
-      <td class="nm c-l">${fmtH(role.allocTotal)}</td>
-      <td class="nm c-e">${fmtH(role.eac)}</td>
-      ${hasBudget ? `<td class="nm c-v ${vc}">${role.variance!=null?fmtH(role.variance):''}</td>` : ''}`;
-    periods.forEach(p => {
-      const a  = role.actualByMonth[p]  || 0;
-      const l  = role.allocByMonth[p]   || 0;
-      const bv = role.budgetByMonth[p]  || 0;
-      pTot[p].act += a; pTot[p].alc += l; pTot[p].bud += bv;
-      tbody += `<td class="nm c-a ps">${fmtH(a)}</td><td class="nm c-l">${fmtH(l)}</td>`;
-      if (hasBudget) tbody += `<td class="nm c-b">${fmtH(bv)}</td>`;
-    });
-    tbody += '</tr>';
-    tBud += role.budgetHours||0; tAct += role.actualTotal||0;
-    tAlc += role.allocTotal||0;  tEAC += role.eac||0;
-    if (role.variance!=null) tVar += role.variance;
+      ${hasBudget ? `<td class="nm c-b">${fmtH(bud)}</td>` : ''}
+      <td class="nm c-a">${fmtH(act)}</td>
+      <td class="nm c-l">${fmtH(alc)}</td>
+      <td class="nm c-e">${fmtH(eac)}</td>
+      ${hasBudget ? `<td class="nm c-v ${vc}">${variance != null ? fmtH(variance) : ''}</td>` : ''}
+    </tr>`;
+    tBud += bud || 0; tAct += act; tAlc += alc; tEAC += eac;
+    if (variance != null) tVar += variance;
   });
   tbody += '</tbody>';
 
-  const tvc = tVar>=0?'pos':'neg';
-  let tfoot = `<tfoot><tr>
+  const tvc = tVar >= 0 ? 'pos' : 'neg';
+  const tfoot = `<tfoot><tr>
     <td class="rn">TOTAL</td>
     ${hasBudget ? `<td class="nm c-b">${fmtH(tBud)}</td>` : ''}
     <td class="nm c-a">${fmtH(tAct)}</td>
     <td class="nm c-l">${fmtH(tAlc)}</td>
     <td class="nm c-e">${fmtH(tEAC)}</td>
-    ${hasBudget ? `<td class="nm c-v ${tvc}">${fmtH(tVar)}</td>` : ''}`;
-  periods.forEach(p => {
-    tfoot += `<td class="nm c-a ps">${fmtH(pTot[p].act)}</td><td class="nm c-l">${fmtH(pTot[p].alc)}</td>`;
-    if (hasBudget) tfoot += `<td class="nm c-b">${fmtH(pTot[p].bud)}</td>`;
-  });
-  tfoot += '</tr></tfoot>';
+    ${hasBudget ? `<td class="nm c-v ${tvc}">${fmtH(tVar)}</td>` : ''}
+  </tr></tfoot>`;
 
-  document.getElementById('rtw-'+key).innerHTML = `<table class="rtbl">${thead}${tbody}${tfoot}</table>`;
+  document.getElementById('rtw-' + key).innerHTML = `<table class="rtbl">${thead}${tbody}${tfoot}</table>`;
 }
 
 function rPeriodLabel(p, isCur) {
