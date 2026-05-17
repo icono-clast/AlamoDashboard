@@ -177,7 +177,7 @@ async function loadData(accessToken) {
         body: JSON.stringify({ function: 'buildDashboardData', devMode: true })
       }
     );
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    if (!resp.ok) { const body = await resp.text(); throw new Error('HTTP ' + resp.status + ': ' + body); }
     const result = await resp.json();
     if (result.error) throw new Error(result.error.message || JSON.stringify(result.error));
     const data = result.response.result;
