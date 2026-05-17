@@ -553,31 +553,52 @@ function buildRoleDetailJS(projKey, timeRows, allocRows, budget, projName, today
         });
       });
     }
-    const actualByMonth = {};
+    const actualByMonth = {}, personActuals = {};
     timeRows.forEach(r => {
       if (String(r['Project: Name'] || '').trim() !== projName) return;
       if (String(r['Role: Name']    || '').trim() !== role)     return;
       const d = parseDate(r['Date (Shared)']);
       if (!d) return;
-      actualByMonth[toYM(d)] = (actualByMonth[toYM(d)] || 0) + parseNum(r['Hours Actual']);
+      const hrs = parseNum(r['Hours Actual']);
+      const ym  = toYM(d);
+      actualByMonth[ym] = (actualByMonth[ym] || 0) + hrs;
+      const user = String(r['User: Name'] || '').trim();
+      if (user) {
+        if (!personActuals[user]) personActuals[user] = { total: 0, byMonth: {} };
+        personActuals[user].total += hrs;
+        personActuals[user].byMonth[ym] = (personActuals[user].byMonth[ym] || 0) + hrs;
+      }
     });
-    const allocByMonth = {};
+    const allocByMonth = {}, personAlloc = {};
     allocRows.forEach(r => {
       if (String(r['Project: Name'] || '').trim() !== projName) return;
       if (String(r['Role: Name']    || '').trim() !== role)     return;
       const d = parseDate(r['Date (Shared)']);
       if (!d) return;
-      allocByMonth[toYM(d)] = (allocByMonth[toYM(d)] || 0) + parseNum(r['Hours Allocated']);
+      const hrs = parseNum(r['Hours Allocated']);
+      const ym  = toYM(d);
+      allocByMonth[ym] = (allocByMonth[ym] || 0) + hrs;
+      const user = String(r['User: Name'] || '').trim();
+      if (user) {
+        if (!personAlloc[user]) personAlloc[user] = { total: 0, byMonth: {} };
+        personAlloc[user].total += hrs;
+        personAlloc[user].byMonth[ym] = (personAlloc[user].byMonth[ym] || 0) + hrs;
+      }
     });
+    const allUsers = new Set([...Object.keys(personActuals), ...Object.keys(personAlloc)]);
+    const kPeople = [...allUsers].sort().map(name => ({
+      name,
+      actualTotal:   (personActuals[name] || {total:0}).total,
+      allocTotal:    (personAlloc[name]   || {total:0}).total,
+      actualByMonth: (personActuals[name] || {byMonth:{}}).byMonth,
+      allocByMonth:  (personAlloc[name]   || {byMonth:{}}).byMonth,
+    }));
     const actualTotal = Object.values(actualByMonth).reduce((s,v) => s + v, 0);
     const allocTotal  = Object.values(allocByMonth).reduce((s,v)  => s + v, 0);
     const eac         = actualTotal + allocTotal;
     const variance    = hasBudget ? budgetHours - eac : null;
-    const budgetPeople = hasBudget && budgetByRole[role]
-      ? budgetByRole[role].map(br => ({ name: br.name, totalHours: br.totalHours, byMonth: br.byMonth }))
-      : [];
     roles.push({ role, budgetHours, hasBudget, actualTotal, allocTotal, eac, variance,
-                 budgetByMonth, actualByMonth, allocByMonth, budgetPeople });
+                 budgetByMonth, actualByMonth, allocByMonth, kPeople });
   });
 
   roles.sort((a,b) => (b.budgetHours - a.budgetHours) || (b.actualTotal - a.actualTotal) || a.role.localeCompare(b.role));
@@ -612,7 +633,21 @@ function mergeRoleDetails(intD, linD) {
         ['actualByMonth','allocByMonth'].forEach(key => {
           Object.entries(r[key] || {}).forEach(([k,v]) => { m[key][k] = (m[key][k]||0) + v; });
         });
-        m.budgetPeople = (m.budgetPeople || []).concat(r.budgetPeople || []);
+        // Merge kPeople by name
+        const pMap = {};
+        (m.kPeople || []).forEach(p => { pMap[p.name] = p; });
+        (r.kPeople || []).forEach(p => {
+          if (!pMap[p.name]) {
+            pMap[p.name] = JSON.parse(JSON.stringify(p));
+          } else {
+            const ep = pMap[p.name];
+            ep.actualTotal += p.actualTotal;
+            ep.allocTotal  += p.allocTotal;
+            Object.entries(p.actualByMonth||{}).forEach(([k,v])=>{ep.actualByMonth[k]=(ep.actualByMonth[k]||0)+v;});
+            Object.entries(p.allocByMonth ||{}).forEach(([k,v])=>{ep.allocByMonth[k] =(ep.allocByMonth[k] ||0)+v;});
+          }
+        });
+        m.kPeople = Object.values(pMap).sort((a,b) => a.name.localeCompare(b.name));
       }
     });
   }
@@ -891,14 +926,18 @@ function renderRoleTable(key) {
       <td class="nm c-e">${fmtH(eac)}</td>
       <td class="nm c-v ${vc}">${variance != null ? fmtH(variance) : ''}</td>
     </tr>`;
-    // Person sub-rows (plan hours only — K actuals are role-level)
-    (role.budgetPeople || []).forEach(p => {
-      const pPlan = period ? (p.byMonth[period] || 0) : p.totalHours;
+    // Person sub-rows from K User: Name — act + alloc per person; plan is role-level only
+    (role.kPeople || []).forEach(p => {
+      const pAct = period ? (p.actualByMonth[period] || 0) : p.actualTotal;
+      const pAlc = period ? (p.allocByMonth[period]  || 0) : p.allocTotal;
+      if (!pAct && !pAlc) return;
       tbody += `<tr class="role-sub">
         <td class="rn"></td>
         <td class="nn">${esc(p.name)}</td>
-        <td class="nm c-b">${fmtH(pPlan)}</td>
-        <td class="nm"></td><td class="nm"></td><td class="nm"></td><td class="nm"></td>
+        <td class="nm"></td>
+        <td class="nm c-a">${fmtH(pAct)}</td>
+        <td class="nm c-l">${fmtH(pAlc)}</td>
+        <td class="nm"></td><td class="nm"></td>
       </tr>`;
     });
     tBud += bud || 0; tAct += act; tAlc += alc; tEAC += eac;
