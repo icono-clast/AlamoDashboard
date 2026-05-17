@@ -100,6 +100,12 @@
   .rtbl tfoot td.c-v.pos{color:var(--green)}
   .rtbl tfoot td.c-v.neg{color:var(--red)}
   .role-legend{display:flex;gap:14px;margin-top:8px;font-size:10px;color:var(--text3)}
+  .rtbl td.nn{font-size:10.5px;color:var(--text2);padding:6px 10px;white-space:nowrap;min-width:130px;font-family:var(--sans)}
+  .rtbl tr.role-sub td.rn{background:var(--bg2);border-right:1px solid var(--border2)}
+  .rtbl tr.role-sub:hover td{background:var(--bg3)!important}
+  .rtbl tr.role-sub td.nn{color:var(--text3);padding-left:22px;font-size:10px}
+  .rtbl tr.role-sub td.nm{color:var(--text3);font-size:10px}
+  .rtbl tr.role-sub{border-bottom:1px solid rgba(255,255,255,0.03)}
   .rl{display:flex;align-items:center;gap:4px}
   .rl-dot{width:7px;height:7px;border-radius:2px;flex-shrink:0}
   .signin-screen{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:16px}
@@ -349,6 +355,7 @@ function parseBudgetTab(data2D, projKey) {
   const rows = [];
   for (let i = hi + 1; i < data2D.length; i++) {
     const r = data2D[i];
+    const name = String(r[0] || '').trim();
     const role = String(r[1] || '').trim();
     if (!role) break;
     const rate       = parseNum(r[2]);
@@ -359,7 +366,7 @@ function parseBudgetTab(data2D, projKey) {
       const hrs = parseNum(r[FIXED + j]);
       if (hrs > 0) byMonth[monthKeys[j]] = hrs;
     }
-    rows.push({ role, rate, kProjCost, totalHours, byMonth });
+    rows.push({ name, role, rate, kProjCost, totalHours, byMonth });
   }
   return { rows, monthKeys };
 }
@@ -564,8 +571,11 @@ function buildRoleDetailJS(projKey, timeRows, allocRows, budget, projName, today
     const allocTotal  = Object.values(allocByMonth).reduce((s,v)  => s + v, 0);
     const eac         = actualTotal + allocTotal;
     const variance    = hasBudget ? budgetHours - eac : null;
+    const budgetPeople = hasBudget && budgetByRole[role]
+      ? budgetByRole[role].map(br => ({ name: br.name, totalHours: br.totalHours, byMonth: br.byMonth }))
+      : [];
     roles.push({ role, budgetHours, hasBudget, actualTotal, allocTotal, eac, variance,
-                 budgetByMonth, actualByMonth, allocByMonth });
+                 budgetByMonth, actualByMonth, allocByMonth, budgetPeople });
   });
 
   roles.sort((a,b) => (b.budgetHours - a.budgetHours) || (b.actualTotal - a.actualTotal) || a.role.localeCompare(b.role));
@@ -600,6 +610,7 @@ function mergeRoleDetails(intD, linD) {
         ['actualByMonth','allocByMonth'].forEach(key => {
           Object.entries(r[key] || {}).forEach(([k,v]) => { m[key][k] = (m[key][k]||0) + v; });
         });
+        m.budgetPeople = (m.budgetPeople || []).concat(r.budgetPeople || []);
       }
     });
   }
@@ -839,43 +850,55 @@ function renderRoleTable(key) {
     if (clearEl) clearEl.style.display = 'none';
   }
 
+  // Always 7 columns: Role | Name | Plan | Act | Alloc | EAC | Var
   const thead = `<thead><tr class="rth-top">
     <th class="rn">Role</th>
-    ${hasBudget ? '<th class="nm" style="text-align:right">Plan hrs</th>' : ''}
+    <th class="nn">Name</th>
+    <th class="nm" style="text-align:right">Plan hrs</th>
     <th class="nm" style="text-align:right">Act hrs</th>
     <th class="nm" style="text-align:right">Alloc hrs</th>
     <th class="nm" style="text-align:right">EAC hrs</th>
-    ${hasBudget ? '<th class="nm" style="text-align:right">Var hrs</th>' : ''}
+    <th class="nm" style="text-align:right">Var hrs</th>
   </tr></thead>`;
 
-  let tBud=0, tAct=0, tAlc=0, tEAC=0, tVar=0, hasVar=false;
+  let tBud=0, tAct=0, tAlc=0, tEAC=0, tVar=0;
   let tbody = '<tbody>';
   detail.roles.forEach(role => {
     let bud, act, alc, eac, variance;
     if (period) {
-      bud      = hasBudget ? (role.budgetByMonth[period] || 0) : null;
+      bud      = role.budgetByMonth[period]  || 0;
       act      = role.actualByMonth[period]  || 0;
       alc      = role.allocByMonth[period]   || 0;
       eac      = act + alc;
-      variance = hasBudget ? ((bud||0) - eac) : null;
-      if (!bud && !act && !alc) return;
+      variance = hasBudget ? (bud - eac) : null;
     } else {
-      bud      = hasBudget ? role.budgetHours : null;
+      bud      = role.budgetHours || 0;
       act      = role.actualTotal;
       alc      = role.allocTotal;
       eac      = role.eac;
       variance = hasBudget ? role.variance : null;
     }
-    if (variance != null) hasVar = true;
     const vc = (variance || 0) >= 0 ? 'pos' : 'neg';
-    tbody += `<tr>
+    // Parent role row
+    tbody += `<tr class="role-parent">
       <td class="rn">${esc(role.role)}</td>
-      ${hasBudget ? `<td class="nm c-b">${fmtH(bud)}</td>` : ''}
+      <td class="nn"></td>
+      <td class="nm c-b">${fmtH(bud)}</td>
       <td class="nm c-a">${fmtH(act)}</td>
       <td class="nm c-l">${fmtH(alc)}</td>
       <td class="nm c-e">${fmtH(eac)}</td>
-      ${hasBudget ? `<td class="nm c-v ${vc}">${variance != null ? fmtH(variance) : ''}</td>` : ''}
+      <td class="nm c-v ${vc}">${variance != null ? fmtH(variance) : ''}</td>
     </tr>`;
+    // Person sub-rows (plan hours only — K actuals are role-level)
+    (role.budgetPeople || []).forEach(p => {
+      const pPlan = period ? (p.byMonth[period] || 0) : p.totalHours;
+      tbody += `<tr class="role-sub">
+        <td class="rn"></td>
+        <td class="nn">${esc(p.name)}</td>
+        <td class="nm c-b">${fmtH(pPlan)}</td>
+        <td class="nm"></td><td class="nm"></td><td class="nm"></td><td class="nm"></td>
+      </tr>`;
+    });
     tBud += bud || 0; tAct += act; tAlc += alc; tEAC += eac;
     if (variance != null) tVar += variance;
   });
@@ -884,11 +907,12 @@ function renderRoleTable(key) {
   const tvc = tVar >= 0 ? 'pos' : 'neg';
   const tfoot = `<tfoot><tr>
     <td class="rn">TOTAL</td>
-    ${hasBudget ? `<td class="nm c-b">${fmtH(tBud)}</td>` : ''}
+    <td class="nn"></td>
+    <td class="nm c-b">${fmtH(tBud)}</td>
     <td class="nm c-a">${fmtH(tAct)}</td>
     <td class="nm c-l">${fmtH(tAlc)}</td>
     <td class="nm c-e">${fmtH(tEAC)}</td>
-    ${hasBudget ? `<td class="nm c-v ${tvc}">${fmtH(tVar)}</td>` : ''}
+    <td class="nm c-v ${tvc}">${fmtH(tVar)}</td>
   </tr></tfoot>`;
 
   document.getElementById('rtw-' + key).innerHTML = `<table class="rtbl">${thead}${tbody}${tfoot}</table>`;
