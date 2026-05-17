@@ -45,8 +45,10 @@ function doGet(e) {
 }
 
 // ── MAIN DATA BUILDER ─────────────────────────────────────────────────────────
+const SPREADSHEET_ID = '1OxpBklTrYUxpPfS2BJjG1CWTNoHmzyOA9GesJqyu7To';
+
 function buildDashboardData() {
-  const ss     = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const config = readConfig(ss);
 
   // Cost Actual / Cost Allocated fields from Kantata exports are already loaded
