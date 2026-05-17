@@ -253,7 +253,7 @@ async function loadData(accessToken) {
 
 function buildDashboardData(tabData) {
   const config  = readConfig(tabData['config'] || []);
-  const mult    = config.overhead_multiplier || 1;
+  const mult    = config.overhead_multiplier || 2.35;
   let asOf;
   if (typeof config.data_as_of === 'number') {
     asOf = new Date(Math.round((config.data_as_of - 25569) * 86400 * 1000))
