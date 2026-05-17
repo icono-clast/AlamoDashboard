@@ -174,7 +174,7 @@ async function loadData(accessToken) {
       {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ function: 'buildDashboardData', devMode: false })
+        body: JSON.stringify({ function: 'buildDashboardData', devMode: true })
       }
     );
     if (!resp.ok) { const body = await resp.text(); throw new Error('HTTP ' + resp.status + ': ' + body); }
