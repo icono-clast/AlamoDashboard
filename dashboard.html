@@ -202,7 +202,7 @@ async function loadData(accessToken) {
     sheetsResult.valueRanges.forEach((vr, i) => { tabData[reqTabs[i]] = vr.values || []; });
 
     // Optional budget tabs — may not exist; ignore errors
-    for (const bt of ['budget-plan-int', 'budget-plan-lin']) {
+    for (const bt of ['bud-int-hrs', 'bud-int-sub', 'bud-lin-hrs', 'bud-lin-sub']) {
       try {
         const br = await fetch(
           'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID +
@@ -267,8 +267,8 @@ function buildDashboardData(tabData) {
   const timeRows  = readSheetFromMarker(tabData['time']        || [], 'Time Entry: ID');
   const allocRows = readSheetFromMarker(tabData['allocations'] || [], 'Resource Allocation Day: ID');
   const taskRows  = readSheetFromMarker(tabData['tasks']       || [], 'Task: Name');
-  const budgetInt = parseBudgetTab(tabData['budget-plan-int']  || []);
-  const budgetLin = parseBudgetTab(tabData['budget-plan-lin']  || []);
+  const budgetInt = parseBudgetTab(tabData['bud-int-hrs'] || []);
+  const budgetLin = parseBudgetTab(tabData['bud-lin-hrs'] || []);
 
   const subsBudgets  = computeSubsBudgets(taskRows);
   const laborActuals = {
