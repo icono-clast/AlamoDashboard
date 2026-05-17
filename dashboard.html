@@ -335,16 +335,18 @@ function readSheetFromMarker(data2D, markerText) {
   return rows;
 }
 
-// Budget tab structure: Team Member | Team Role | Rate | K Proj Cost | Total Hrs | Oct | Nov | ...
-// Month columns start at index 5 and map sequentially from project start date.
+// Plan tab layout (col indices):
+//   0=blank  1=Team Member  2=Team Role  3=Rate  4=K Proj Cost  5=Total Hrs  6=blank  7+=monthly hrs
+// "Team Member" sentinel is in col B (idx 1). Month cols start at idx 7 (FIXED=7).
+// Sheets API preserves leading blank col as ""; xlsx has it as null — both handled by || ''.
 function parseBudgetTab(data2D, projKey) {
   if (!data2D || !data2D.length) return { rows: [], monthKeys: [] };
   let hi = -1;
   for (let i = 0; i < data2D.length; i++) {
-    if (String(data2D[i][0] || '').trim() === 'Team Member') { hi = i; break; }
+    if (String(data2D[i][1] || '').trim() === 'Team Member') { hi = i; break; }
   }
   if (hi < 0) return { rows: [], monthKeys: [] };
-  const FIXED = 5;
+  const FIXED = 7;
   const bounds = PROJECT_BOUNDS[projKey];
   const numCols = data2D[hi].length - FIXED;
   const monthKeys = [];
@@ -355,12 +357,12 @@ function parseBudgetTab(data2D, projKey) {
   const rows = [];
   for (let i = hi + 1; i < data2D.length; i++) {
     const r = data2D[i];
-    const name = String(r[0] || '').trim();
-    const role = String(r[1] || '').trim();
+    const name = String(r[1] || '').trim();
+    const role = String(r[2] || '').trim();
     if (!role) break;
-    const rate       = parseNum(r[2]);
-    const kProjCost  = parseNum(r[3]);
-    const totalHours = parseNum(r[4]);
+    const rate       = parseNum(r[3]);
+    const kProjCost  = parseNum(r[4]);
+    const totalHours = parseNum(r[5]);
     const byMonth = {};
     for (let j = 0; j < monthKeys.length && (FIXED + j) < r.length; j++) {
       const hrs = parseNum(r[FIXED + j]);
