@@ -147,7 +147,7 @@
 // ── BOOTSTRAP: Google Sign-In → Apps Script Execution API ────────────────────
 const CLIENT_ID = '955015400228-9psun8ffgthqkscee3nebovfsmmgmon5.apps.googleusercontent.com';
 const SCRIPT_ID = '1r_9TiqHQlxzt5N34gSt8zmEa5GPmPlQXPRY5Zmx_qcIVRwK0-3XSC1tx';
-const SCOPES   = 'https://www.googleapis.com/auth/spreadsheets.currentonly';
+const SCOPES   = 'https://www.googleapis.com/auth/spreadsheets';
 
 let RAW, KD, FUTURE, MONTHLY, META;
 let tokenClient;
@@ -498,6 +498,7 @@ function show(key){
     document.getElementById('p-'+k).style.display=k===key?'':'none';
   });
   document.getElementById('active-label').innerHTML=`Viewing: <span>${LABELS[key]}</span>`;
+  if(!KD) return;
   if(!built[key]){buildPane(key);built[key]=true;}
 }
 
