@@ -187,7 +187,7 @@ async function loadData(accessToken) {
     }
 
     const tabs = ['time', 'allocations', 'tasks', 'config', 'budget-plan-int', 'budget-plan-lin'];
-    const params = tabs.map(t => 'ranges=' + encodeURIComponent(t)).join('&');
+    const params = tabs.map(t => 'ranges=' + encodeURIComponent("'" + t + "'")).join('&');
     const sheetsResp = await fetch(
       'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID +
       '/values:batchGet?' + params + '&valueRenderOption=UNFORMATTED_VALUE',
