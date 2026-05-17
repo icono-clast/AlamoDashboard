@@ -79,17 +79,17 @@
   .rtbl thead .rth-top th{background:var(--bg3);padding:7px 10px;font-family:var(--mono);font-weight:500;font-size:9.5px;letter-spacing:.07em;color:var(--text3);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border2)}
   .rtbl thead .rth-top th.pg{border-left:1px solid var(--border2);color:var(--blue);text-align:center}
   .rtbl thead .rth-sub th{background:var(--bg2);padding:4px 8px;font-family:var(--mono);font-size:9px;letter-spacing:.04em;color:var(--text3);white-space:nowrap;border-bottom:2px solid var(--border2)}
-  .rtbl thead .rth-sub .c-b{color:#b8a9ff}
+  .rtbl thead .rth-sub .c-b{color:#f5a524}
   .rtbl thead .rth-sub .c-a{color:var(--blue)}
-  .rtbl thead .rth-sub .c-l{color:#f5c842}
+  .rtbl thead .rth-sub .c-l{color:#3ecf8e}
   .rtbl tbody tr{border-bottom:1px solid var(--border)}
   .rtbl tbody tr:hover td{background:var(--bg3)!important}
   .rtbl td{padding:6px 10px;white-space:nowrap;font-family:var(--sans)}
   .rtbl td.rn{font-weight:500;color:var(--text1);min-width:155px;position:sticky;left:0;background:var(--bg2);z-index:5;border-right:1px solid var(--border2)}
   .rtbl td.nm{font-family:var(--mono);text-align:right;font-size:10.5px}
-  .rtbl td.nm.c-b{color:#b8a9ff}
+  .rtbl td.nm.c-b{color:#f5a524}
   .rtbl td.nm.c-a{color:#7ab4f5}
-  .rtbl td.nm.c-l{color:#f5c842}
+  .rtbl td.nm.c-l{color:#3ecf8e}
   .rtbl td.nm.c-e{color:var(--text1)}
   .rtbl td.nm.c-v.pos{color:var(--green)}
   .rtbl td.nm.c-v.neg{color:var(--red)}
@@ -197,7 +197,7 @@ async function loadData(accessToken) {
     const sheetsResult = await sheetsResp.json();
     const tabData = {};
     sheetsResult.valueRanges.forEach((vr, i) => { tabData[reqTabs[i]] = vr.values || []; });
-    for (const bt of ['bud-int-hrs', 'bud-int-sub', 'bud-lin-hrs', 'bud-lin-sub']) {
+    for (const bt of ['plan-int-hrs', 'plan-int-sub', 'plan-lin-hrs', 'plan-lin-sub']) {
       try {
         const br = await fetch(
           'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID +
@@ -255,8 +255,8 @@ function buildDashboardData(tabData) {
   const timeRows  = readSheetFromMarker(tabData['time']        || [], 'Time Entry: ID');
   const allocRows = readSheetFromMarker(tabData['allocations'] || [], 'Resource Allocation Day: ID');
   const taskRows  = readSheetFromMarker(tabData['tasks']       || [], 'Task: Name');
-  const budgetInt = parseBudgetTab(tabData['bud-int-hrs'] || [], 'int');
-  const budgetLin = parseBudgetTab(tabData['bud-lin-hrs'] || [], 'lin');
+  const budgetInt = parseBudgetTab(tabData['plan-int-hrs'] || [], 'int');
+  const budgetLin = parseBudgetTab(tabData['plan-lin-hrs'] || [], 'lin');
 
   const subsBudgets  = computeSubsBudgets(taskRows);
   const laborActuals = {
@@ -564,7 +564,7 @@ function buildRoleDetailJS(projKey, timeRows, allocRows, budget, projName, today
       if (String(r['Project: Name'] || '').trim() !== projName) return;
       if (String(r['Role: Name']    || '').trim() !== role)     return;
       const d = parseDate(r['Date (Shared)']);
-      if (!d || d.getTime() < todayMs) return;
+      if (!d) return;
       allocByMonth[toYM(d)] = (allocByMonth[toYM(d)] || 0) + parseNum(r['Hours Allocated']);
     });
     const actualTotal = Object.values(actualByMonth).reduce((s,v) => s + v, 0);
@@ -809,9 +809,9 @@ function buildRoleSection(key) {
       </div>
       <div class="role-table-wrap" id="rtw-${key}"></div>
       <div class="role-legend">
-        ${hasBudget ? '<div class="rl"><div class="rl-dot" style="background:#b8a9ff"></div> Plan hrs</div>' : ''}
+        <div class="rl"><div class="rl-dot" style="background:#f5a524"></div> Plan hrs</div>
         <div class="rl"><div class="rl-dot" style="background:#7ab4f5"></div> Actual hrs</div>
-        <div class="rl"><div class="rl-dot" style="background:#f5c842"></div> Allocated hrs</div>
+        <div class="rl"><div class="rl-dot" style="background:#3ecf8e"></div> Alloc hrs</div>
       </div>
     </div>
   `;
@@ -854,11 +854,11 @@ function renderRoleTable(key) {
   const thead = `<thead><tr class="rth-top">
     <th class="rn">Role</th>
     <th class="nn">Name</th>
-    <th class="nm" style="text-align:right">Plan hrs</th>
-    <th class="nm" style="text-align:right">Act hrs</th>
-    <th class="nm" style="text-align:right">Alloc hrs</th>
-    <th class="nm" style="text-align:right">EAC hrs</th>
-    <th class="nm" style="text-align:right">Var hrs</th>
+    <th class="nm c-b" style="text-align:right">Plan hrs</th>
+    <th class="nm c-a" style="text-align:right">Act hrs</th>
+    <th class="nm c-l" style="text-align:right">Alloc hrs</th>
+    <th class="nm" style="text-align:right;color:var(--text2)">EAC hrs</th>
+    <th class="nm" style="text-align:right;color:var(--text2)">Var hrs</th>
   </tr></thead>`;
 
   let tBud=0, tAct=0, tAlc=0, tEAC=0, tVar=0;
