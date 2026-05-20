@@ -479,18 +479,27 @@ function buildWeekly(timeRows, allocRows, projectName, todayMs, mult, budget) {
     allocByWk[wk].cost += parseNum(r['Cost Allocated']) * mult;
     allocByWk[wk].hrs  += parseNum(r['Hours Allocated']);
   });
-  // Interpolate monthly budget into weeks by distributing evenly across weeks in each month
+  // Prorate monthly budget into weeks weighted by working days (Mon-Fri) per week
   if (budget && budget.rows) {
     budget.rows.forEach(role => {
       Object.entries(role.byMonth).forEach(([ym, hrs]) => {
         const [y, m] = ym.split('-').map(Number);
         const monthStart = new Date(y, m - 1, 1);
         const monthEnd   = new Date(y, m, 0);
-        const weeks = new Set();
-        for (let d = new Date(monthStart); d <= monthEnd; d.setDate(d.getDate() + 1))
-          weeks.add(isoWeekKey(d));
-        const costPerWeek = (hrs * role.rate * mult) / weeks.size;
-        weeks.forEach(wk => { budgetByWk[wk] = (budgetByWk[wk] || 0) + costPerWeek; });
+        const wkDays = {};
+        let totalWd = 0;
+        for (let d = new Date(monthStart); d <= monthEnd; d.setDate(d.getDate() + 1)) {
+          const dow = d.getDay();
+          if (dow === 0 || dow === 6) continue;
+          const wk = isoWeekKey(d);
+          wkDays[wk] = (wkDays[wk] || 0) + 1;
+          totalWd++;
+        }
+        if (!totalWd) return;
+        const monthlyCost = hrs * role.rate * mult;
+        Object.entries(wkDays).forEach(([wk, wd]) => {
+          budgetByWk[wk] = (budgetByWk[wk] || 0) + monthlyCost * wd / totalWd;
+        });
       });
     });
   }
@@ -887,7 +896,7 @@ function renderRoleTable(key) {
     if (clearEl) clearEl.style.display = 'none';
   }
 
-  // Always 7 columns: Role | Name | Plan | Act | Alloc | EAC | Var
+  // 8 columns: Role | Name | Plan | Act | Alloc | EAC | Plan Var | Alloc Var
   const thead = `<thead><tr class="rth-top">
     <th class="rn">Role</th>
     <th class="nn">Name</th>
@@ -895,27 +904,31 @@ function renderRoleTable(key) {
     <th class="nm c-a" style="text-align:right">Act hrs</th>
     <th class="nm c-l" style="text-align:right">Alloc hrs</th>
     <th class="nm" style="text-align:right;color:var(--text2)">EAC hrs</th>
-    <th class="nm" style="text-align:right;color:var(--text2)">Var hrs</th>
+    <th class="nm" style="text-align:right;color:var(--text2)">Plan Var</th>
+    <th class="nm" style="text-align:right;color:var(--text2)">Alloc Var</th>
   </tr></thead>`;
 
-  let tBud=0, tAct=0, tAlc=0, tEAC=0, tVar=0;
+  let tBud=0, tAct=0, tAlc=0, tEAC=0, tVar=0, tAlcVar=0;
   let tbody = '<tbody>';
   detail.roles.forEach(role => {
-    let bud, act, alc, eac, variance;
+    let bud, act, alc, eac, planVar, alcVar;
     if (period) {
-      bud      = role.budgetByMonth[period]  || 0;
-      act      = role.actualByMonth[period]  || 0;
-      alc      = role.allocByMonth[period]   || 0;
-      eac      = act + alc;
-      variance = hasBudget ? (bud - eac) : null;
+      bud     = role.budgetByMonth[period]  || 0;
+      act     = role.actualByMonth[period]  || 0;
+      alc     = role.allocByMonth[period]   || 0;
+      eac     = act + alc;
+      planVar = hasBudget ? (bud - eac) : null;
+      alcVar  = hasBudget ? (bud - alc)  : null;
     } else {
-      bud      = role.budgetHours || 0;
-      act      = role.actualTotal;
-      alc      = role.allocTotal;
-      eac      = role.eac;
-      variance = hasBudget ? role.variance : null;
+      bud     = role.budgetHours || 0;
+      act     = role.actualTotal;
+      alc     = role.allocTotal;
+      eac     = role.eac;
+      planVar = hasBudget ? role.variance : null;
+      alcVar  = hasBudget ? (bud - alc)  : null;
     }
-    const vc = (variance || 0) >= 0 ? 'pos' : 'neg';
+    const pvc = (planVar || 0) >= 0 ? 'pos' : 'neg';
+    const avc = (alcVar  || 0) >= 0 ? 'pos' : 'neg';
     // Parent role row
     tbody += `<tr class="role-parent">
       <td class="rn">${esc(role.role)}</td>
@@ -924,7 +937,8 @@ function renderRoleTable(key) {
       <td class="nm c-a">${fmtH(act)}</td>
       <td class="nm c-l">${fmtH(alc)}</td>
       <td class="nm c-e">${fmtH(eac)}</td>
-      <td class="nm c-v ${vc}">${variance != null ? fmtH(variance) : ''}</td>
+      <td class="nm c-v ${pvc}">${planVar != null ? fmtH(planVar) : ''}</td>
+      <td class="nm c-v ${avc}">${alcVar  != null ? fmtH(alcVar)  : ''}</td>
     </tr>`;
     // Person sub-rows from K User: Name — act + alloc per person; plan is role-level only
     (role.kPeople || []).forEach(p => {
@@ -937,15 +951,17 @@ function renderRoleTable(key) {
         <td class="nm"></td>
         <td class="nm c-a">${fmtH(pAct)}</td>
         <td class="nm c-l">${fmtH(pAlc)}</td>
-        <td class="nm"></td><td class="nm"></td>
+        <td class="nm"></td><td class="nm"></td><td class="nm"></td>
       </tr>`;
     });
     tBud += bud || 0; tAct += act; tAlc += alc; tEAC += eac;
-    if (variance != null) tVar += variance;
+    if (planVar != null) tVar    += planVar;
+    if (alcVar  != null) tAlcVar += alcVar;
   });
   tbody += '</tbody>';
 
-  const tvc = tVar >= 0 ? 'pos' : 'neg';
+  const tpvc = tVar    >= 0 ? 'pos' : 'neg';
+  const tavc = tAlcVar >= 0 ? 'pos' : 'neg';
   const tfoot = `<tfoot><tr>
     <td class="rn">TOTAL</td>
     <td class="nn"></td>
@@ -953,7 +969,8 @@ function renderRoleTable(key) {
     <td class="nm c-a">${fmtH(tAct)}</td>
     <td class="nm c-l">${fmtH(tAlc)}</td>
     <td class="nm c-e">${fmtH(tEAC)}</td>
-    <td class="nm c-v ${tvc}">${fmtH(tVar)}</td>
+    <td class="nm c-v ${tpvc}">${fmtH(tVar)}</td>
+    <td class="nm c-v ${tavc}">${fmtH(tAlcVar)}</td>
   </tr></tfoot>`;
 
   document.getElementById('rtw-' + key).innerHTML = `<table class="rtbl">${thead}${tbody}${tfoot}</table>`;
